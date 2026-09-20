@@ -460,8 +460,8 @@ static int parse_innertube_player(const char *json, YtResolvedMedia *out)
 			int h = json_is_integer(height) ? (int)json_integer_value(height)
 			                                : 0;
 			if (!url || !url[0]) continue;
-			if (mime && !strstr(mime, "mp4") && !strstr(mime, "avc1"))
-				continue;
+			/* Vita hardware decode needs H.264 (avc1). Reject AV1/VP9. */
+			if (!mime || !strstr(mime, "avc1")) continue;
 			if (h <= 0) {
 				const char *label =
 				    json_string_value(json_object_get(f, "qualityLabel"));
@@ -471,8 +471,7 @@ static int parse_innertube_player(const char *json, YtResolvedMedia *out)
 			if (h >= best_h) {
 				best_h = h;
 				copy_field(out->video_url, sizeof(out->video_url), url);
-				pick_ext_from_mime(mime, "mp4", out->video_ext,
-				                   sizeof(out->video_ext));
+				snprintf(out->video_ext, sizeof(out->video_ext), "mp4");
 			}
 		}
 	}
@@ -768,6 +767,29 @@ fail:
 	}
 	if (in) avformat_close_input(&in);
 	return ret;
+}
+
+int yt_client_file_has_h264(const char *path)
+{
+	AVFormatContext *fmt = NULL;
+	unsigned i;
+	int found = 0;
+
+	if (!path || !path[0]) return 0;
+	if (avformat_open_input(&fmt, path, NULL, NULL) < 0) return 0;
+	if (avformat_find_stream_info(fmt, NULL) < 0) {
+		avformat_close_input(&fmt);
+		return 0;
+	}
+	for (i = 0; i < fmt->nb_streams; i++) {
+		if (fmt->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO &&
+		    fmt->streams[i]->codecpar->codec_id == AV_CODEC_ID_H264) {
+			found = 1;
+			break;
+		}
+	}
+	avformat_close_input(&fmt);
+	return found;
 }
 
 void yt_client_safe_filename(const char *title, char *out, size_t out_size)

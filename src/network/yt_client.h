@@ -49,6 +49,9 @@ int yt_client_resolve(const char *video_id, YtResolvedMedia *out,
 int yt_client_remux_audio_m4a(const char *src_mp4, const char *dst_m4a,
                               char *detail, size_t detail_size);
 
+/* Returns 1 if path has an H.264 video track suitable for Vita playback. */
+int yt_client_file_has_h264(const char *path);
+
 /* Build a filesystem-safe base name from a title (no extension). */
 void yt_client_safe_filename(const char *title, char *out, size_t out_size);
 

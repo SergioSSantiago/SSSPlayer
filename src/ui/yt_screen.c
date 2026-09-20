@@ -231,7 +231,7 @@ static int draw_action_menu(const YtSearchResult *item, int *choice)
 }
 
 static int run_yt_download(const char *url, const char *filename,
-                            const char *start_folder)
+                            UiDestKind kind, int require_h264)
 {
 	VtDownloadJob job;
 	char destination[512];
@@ -240,7 +240,7 @@ static int run_yt_download(const char *url, const char *filename,
 		ui_message_show("Download failed", "No media URL available", 2800);
 		return -1;
 	}
-	if (!ui_destination_picker(start_folder, destination, sizeof(destination)))
+	if (!ui_destination_picker_kind(kind, NULL, destination, sizeof(destination)))
 		return -1;
 
 	vt_download_job_init_url(&job, url);
@@ -252,10 +252,18 @@ static int run_yt_download(const char *url, const char *filename,
 		int result = ui_loading_run_download(
 		    vt_i18n_str(VT_STR_NETWORK_DOWNLOADING), vt_download_run, &job,
 		    &job.paused, &job.cancel, &job.progress_current, &job.progress_total);
-		if (result == 0)
+		if (result == 0) {
+			if (require_h264 && !yt_client_file_has_h264(job.destination)) {
+				sceIoRemove(job.destination);
+				ui_message_show(
+				    "Unsupported video",
+				    "File has no H.264 track (need progressive MP4).",
+				    3600);
+				return -1;
+			}
 			ui_message_show(vt_i18n_str(VT_STR_NETWORK_DOWNLOAD_COMPLETE),
 			                job.destination, 2800);
-		else if (job.cancel)
+		} else if (job.cancel)
 			ui_message_show(vt_i18n_str(VT_STR_NETWORK_DOWNLOAD_ABORTED),
 			                job.destination, 2400);
 		else
@@ -298,8 +306,9 @@ static int resolve_and_act(const YtSearchResult *item, UiYtSelection *selection,
 
 	if (choice == 0) {
 		if (!media.video_url[0]) {
-			ui_message_show("Playback failed", "No progressive video stream",
-			                3000);
+			ui_message_show(
+			    "Playback failed",
+			    "No H.264 progressive stream for this video", 3200);
 			return 0;
 		}
 		if (!selection) return 0;
@@ -318,28 +327,22 @@ static int resolve_and_act(const YtSearchResult *item, UiYtSelection *selection,
 
 	if (choice == 1) {
 		if (!media.video_url[0]) {
-			ui_message_show("Download failed", "No video stream URL", 2800);
+			ui_message_show(
+			    "Download failed",
+			    "No H.264 progressive stream for this video", 3200);
 			return 0;
 		}
 		/* Always .mp4: progressive itag 18 is muxed H.264+AAC. */
 		snprintf(filename, sizeof(filename), "%s.mp4", base);
-		sceIoMkdir("ux0:video", 0777);
-		run_yt_download(media.video_url, filename, "ux0:video");
+		run_yt_download(media.video_url, filename, UI_DEST_KIND_VIDEO, 1);
 		return 0;
 	}
 
 	if (choice == 2) {
-		sceIoMkdir("ux0:music", 0777);
-
 		if (media.audio_url[0]) {
 			snprintf(filename, sizeof(filename), "%s.%s", base,
 			         media.audio_ext[0] ? media.audio_ext : "m4a");
-			if (run_yt_download(media.audio_url, filename, "ux0:music") == 0) {
-				ui_message_show(
-				    "Audio saved",
-				    "Saved as M4A (AAC). Play it from ux0:/music or uma0:/music.",
-				    3200);
-			}
+			run_yt_download(media.audio_url, filename, UI_DEST_KIND_AUDIO, 0);
 			return 0;
 		}
 
@@ -353,7 +356,8 @@ static int resolve_and_act(const YtSearchResult *item, UiYtSelection *selection,
 			char *yt;
 
 			snprintf(temp_name, sizeof(temp_name), "%s.yt.mp4", base);
-			if (!ui_destination_picker("ux0:music", folder, sizeof(folder)))
+			if (!ui_destination_picker_kind(UI_DEST_KIND_AUDIO, NULL, folder,
+			                               sizeof(folder)))
 				return 0;
 			vt_download_job_init_url(&dl, media.video_url);
 			vt_download_job_set_destination(&dl, folder);
