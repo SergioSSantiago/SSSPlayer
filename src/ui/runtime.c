@@ -4,6 +4,7 @@
 #include "ui/theme.h"
 
 static int g_runtime_ready = 0;
+static int g_owns_vita2d = 0;
 static vita2d_font *g_font_small = NULL;
 static vita2d_font *g_font_body = NULL;
 static vita2d_font *g_font_display = NULL;
@@ -30,6 +31,7 @@ int ui_runtime_init(void) {
 	}
 
 	vita2d_set_clear_color(VT_THEME_BG);
+	g_owns_vita2d = 1;
 	g_runtime_ready = 1;
 	return 0;
 }
@@ -39,6 +41,7 @@ int ui_runtime_attach_existing(void) {
 	if (g_runtime_ready) return 0;
 	if (vita2d_get_context() == NULL || vita2d_get_current_fb() == NULL)
 		return -1;
+	g_owns_vita2d = 0;
 	g_runtime_ready = 1;
 	return 0;
 }
@@ -112,7 +115,10 @@ void ui_runtime_term(void) {
 		g_subtitle_semibold_display = NULL;
 		g_subtitle_semibold_xlarge = NULL;
 		ui_font_fallback_term();
-		vita2d_fini();
+		/* Music shell owns vita2d when we attached; only fini if we created it. */
+		if (g_owns_vita2d)
+			vita2d_fini();
+		g_owns_vita2d = 0;
 		g_runtime_ready = 0;
 	}
 }

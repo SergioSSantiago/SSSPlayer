@@ -26,6 +26,7 @@
 #include "ui/local_files_screen.h"
 #include "ui/local_media_screen.h"
 #include "ui/loading_screen.h"
+#include "ui/mini_player.h"
 #include "ui/network_sources_screen.h"
 #include "ui/yt_screen.h"
 #include "ui/runtime.h"
@@ -336,4 +337,24 @@ int sss_video_browse_youtube(void)
 			                "Could not play the resolved stream", 3200);
 		memset(&selection, 0, sizeof(selection));
 	}
+}
+
+void sss_video_shutdown(void)
+{
+	if (!g_video_ready) return;
+
+	/* Thumbnail worker may still touch GXM textures — fence before fini. */
+	vt_video_thumbnail_shutdown();
+	vt_background_playback_shutdown();
+	ui_mini_player_shutdown();
+
+	if (g_network_ready) {
+		vt_network_shutdown();
+		vita_https_shutdown();
+		g_network_ready = 0;
+	}
+
+	/* Free video UI fonts/logo; do not destroy music shell's vita2d. */
+	ui_runtime_term();
+	g_video_ready = 0;
 }

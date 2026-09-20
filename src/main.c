@@ -28,6 +28,7 @@
 #include "globals.h"
 #include "theme.h"
 #include "ui/touch.h"
+#include "video_bridge.h"
 
 static Equalizer g_eq;
 
@@ -211,6 +212,10 @@ int main(void)
     }
 
 cleanup:
+    /* Stop video/network workers and release sceNet before destroying GXM. */
+    sss_video_shutdown();
+    ui_touch_term();
+
     theme_manager_free(&g_theme_mgr);
     ui_destroy(&g_ui);
     visualizer_destroy(&g_vis);
@@ -221,6 +226,7 @@ cleanup:
     audio_engine_destroy(&g_engine);
     metadata_free(&g_current_meta);
     sceAppUtilMusicUmount();
+    vita2d_wait_rendering_done();
     vita2d_fini();
 
     sceKernelExitProcess(0);

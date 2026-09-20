@@ -22,6 +22,10 @@ int sss_video_browse_network(void);
 /* Open YouTube search / play / download. */
 int sss_video_browse_youtube(void);
 
+/* Tear down video/network workers before process exit (must run before
+ * vita2d_fini). Safe to call if video was never opened. */
+void sss_video_shutdown(void);
+
 #ifdef __cplusplus
 }
 #endif

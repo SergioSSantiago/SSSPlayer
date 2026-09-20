@@ -12,9 +12,19 @@
 #include <psp2/kernel/threadmgr.h>
 #include <psp2/kernel/processmgr.h>
 
+static int g_bgm_held = 0;
+
 static inline void acquire_bgm_port(void)
 {
     sceAppMgrAcquireBgmPort();
+    g_bgm_held = 1;
+}
+
+static inline void release_bgm_port(void)
+{
+    if (!g_bgm_held) return;
+    sceAppMgrReleaseBgmPort();
+    g_bgm_held = 0;
 }
 
 #include "audio_engine.h"
@@ -458,6 +468,7 @@ int audio_engine_init(AudioEngine *e)
         e->port_sample_rate,
         SCE_AUDIO_OUT_PARAM_FORMAT_S16_STEREO);
     if (e->port < 0) {
+        release_bgm_port();
         free(e->visualizer_buffer);
         free_pcm_buffers(e);
         return e->port;
@@ -557,8 +568,11 @@ void audio_engine_destroy(AudioEngine *e)
     }
 
     /* Release SceAudio resources */
-    sceAudioOutReleasePort(e->port);
-    sceAppMgrReleaseBgmPort();
+    if (e->port >= 0) {
+        sceAudioOutReleasePort(e->port);
+        e->port = -1;
+    }
+    release_bgm_port();
 
     /* Synchronisation */
     sceKernelDeleteSema(e->semaphore);
@@ -692,7 +706,7 @@ void audio_engine_suspend_output(AudioEngine *e)
     }
     sceKernelUnlockMutex(e->mutex, 1);
 
-    sceAppMgrReleaseBgmPort();
+    release_bgm_port();
 }
 
 int audio_engine_resume_output(AudioEngine *e)

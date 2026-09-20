@@ -20,6 +20,7 @@ int ui_runtime_attach_existing(void);
  * instead of leaving blank top-bar and text placeholders. */
 void ui_runtime_load_boot_assets(void);
 void ui_runtime_load_assets(void);
+/* Free fonts/logo. Calls vita2d_fini only if this module created vita2d. */
 void ui_runtime_term(void);
 int ui_runtime_is_ready(void);
 
