@@ -1,7 +1,7 @@
 # SSSPlayer
 
-**Latest release: [v1.1.1](https://github.com/SergioSSantiago/SSSPlayer/releases/tag/v1.1.1)**  
-Download: `SSSPlayer-1.1.1.vpk`
+**Latest release: [v1.1.2](https://github.com/SergioSSantiago/SSSPlayer/releases/tag/v1.1.2)**  
+Download: `SSSPlayer-1.1.2.vpk`
 
 Music + video media player for PlayStation Vita by **SergioSSantiago**.
 
@@ -47,7 +47,7 @@ cmake .. -DCMAKE_TOOLCHAIN_FILE=$VITASDK/share/vita.toolchain.cmake -DVITASDK=$V
 make -j$(sysctl -n hw.ncpu)
 ```
 
-The packaged file is `SSSPlayer-1.1.1.vpk` (version embedded in the filename).
+The packaged file is `SSSPlayer-1.1.2.vpk` (version embedded in the filename).
 
 ## License
 

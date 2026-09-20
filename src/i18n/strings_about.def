@@ -1,5 +1,5 @@
 VT_STR(ABOUT_TITLE, "Informazioni", "About")
-VT_STR(ABOUT_VERSION, "Versione 1.1.1", "Version 1.1.1")
+VT_STR(ABOUT_VERSION, "Versione 1.1.2", "Version 1.1.2")
 VT_STR(ABOUT_DEVELOPER, "Sviluppato da SergioSSantiago su GitHub", "Developed by SergioSSantiago on GitHub")
 VT_STR(ABOUT_TAGLINE, "Musica e video per PlayStation Vita", "Music and video for PlayStation Vita")
 VT_STR(ABOUT_SPECS_TITLE, "Specifiche prestazioni", "Performance specs")

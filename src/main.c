@@ -27,6 +27,7 @@
 #include "visualizer.h"
 #include "globals.h"
 #include "theme.h"
+#include "ui/touch.h"
 
 static Equalizer g_eq;
 
@@ -96,6 +97,9 @@ int main(void)
     /* ── vita2d init ── */
     vita2d_init();
     vita2d_set_clear_color(COLOR_BG);  /* off-white, matches Apple Music theme */
+
+    /* Front-panel touch for Now Playing scrub (and later video bridge). */
+    ui_touch_init();
 
     /* ── Controller ── */
     sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG_WIDE);

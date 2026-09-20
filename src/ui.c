@@ -25,6 +25,7 @@
 #include "theme.h"
 #include "video_bridge.h"
 #include "equalizer.h"
+#include "ui/touch.h"
 
 /* ── Settings persistence ────────────────────────────────────────────────── */
 #define SETTINGS_PATH    "ux0:data/SSSPlayer/settings.dat"
@@ -106,6 +107,29 @@ static void draw_header(const UIState *ui);
 static void draw_footer(const UIState *ui, const char *hints);
 static void draw_theme_bg(const UIState *ui, UIScreen screen);
 
+/* Now Playing progress bar geometry — keep input hit-test and draw in sync. */
+static void now_playing_progress_rect(const UIState *ui,
+                                      int *x, int *y, int *w, int *h)
+{
+    int content_y = BAR_HEIGHT + 10;
+    int art_y = content_y + 10;
+    int art_h = ui && ui->layout.album_art_size > 0
+              ? ui->layout.album_art_size : 200;
+    if (x) *x = 20;
+    if (y) *y = art_y + art_h + 16;
+    if (w) *w = SCREEN_WIDTH - 40;
+    if (h) *h = 8;
+}
+
+static float progress_fraction_from_touch(int touch_x, int bar_x, int bar_w)
+{
+    if (bar_w <= 0) return 0.0f;
+    float fraction = (float)(touch_x - bar_x) / (float)bar_w;
+    if (fraction < 0.0f) return 0.0f;
+    if (fraction > 1.0f) return 1.0f;
+    return fraction;
+}
+
 /* ── ui_init ─────────────────────────────────────────────────────────────── */
 
 int ui_init(UIState *ui)
@@ -171,9 +195,12 @@ void ui_switch_screen(UIState *ui, UIScreen screen)
     ui->prev_screen    = ui->current_screen;
     ui->current_screen = screen;
     ui->list_offset    = 0;
+    ui->scrubbing      = 0;
     /* Don't reset list_selected when going to NOW_PLAYING */
     if (screen != UI_SCREEN_NOW_PLAYING) {
         ui->list_selected = 0;
+    } else {
+        ui_touch_reset();
     }
     /* Sync theme preview index when entering Settings */
     if (screen == UI_SCREEN_SETTINGS && ui->theme_mgr) {
@@ -261,6 +288,46 @@ void ui_handle_input(UIState *ui,
     /* Use just_pressed OR repeat trigger for navigation */
     uint32_t nav_pressed = just_pressed;
     if (doing_repeat) nav_pressed |= (held & nav_bits);
+
+    /* ── Touch scrub on Now Playing (same model as the video timeline) ── */
+    if (ui->current_screen == UI_SCREEN_NOW_PLAYING && engine) {
+        UiTouchEvent touch;
+        unsigned int touch_flags = ui_touch_poll(&touch);
+        int pb_x, pb_y, pb_w, pb_h;
+        now_playing_progress_rect(ui, &pb_x, &pb_y, &pb_w, &pb_h);
+        /* Tall hit strip — the 8px bar alone is easy to miss. */
+        int hit_y = pb_y - 22;
+        int hit_h = pb_h + 44;
+        uint64_t dur_ms = audio_engine_get_duration(engine);
+
+        if (!ui->scrubbing && dur_ms > 0 &&
+            (touch_flags & UI_TOUCH_EVENT_DOWN) &&
+            ui_touch_hit_rect(touch.x, touch.y, pb_x, hit_y, pb_w, hit_h)) {
+            ui->scrubbing = 1;
+            ui->scrub_fraction =
+                progress_fraction_from_touch(touch.x, pb_x, pb_w);
+        }
+        if (ui->scrubbing &&
+            (touch_flags & (UI_TOUCH_EVENT_MOVE | UI_TOUCH_EVENT_HOLD |
+                            UI_TOUCH_EVENT_UP))) {
+            /* Prefer last tracked X on UP: some lifts report a stale/zero sample. */
+            if (!(touch_flags & UI_TOUCH_EVENT_UP) || touch.x >= pb_x) {
+                ui->scrub_fraction =
+                    progress_fraction_from_touch(touch.x, pb_x, pb_w);
+            }
+            if (touch_flags & UI_TOUCH_EVENT_UP) {
+                if (dur_ms > 0) {
+                    uint64_t target =
+                        (uint64_t)(ui->scrub_fraction * (double)dur_ms);
+                    if (target > dur_ms) target = dur_ms;
+                    audio_engine_seek(engine, target);
+                }
+                ui->scrubbing = 0;
+            }
+        }
+    } else if (ui->scrubbing) {
+        ui->scrubbing = 0;
+    }
 
     /* ── Auto-advance: track ended, move to next ── */
     if (engine && engine->auto_advance) {
@@ -1932,37 +1999,43 @@ void ui_draw_now_playing(const UIState *ui,
     }
 
     /* ── Progress bar ── */
-    int pb_x = 20;
-    int pb_y = art_y + art_h + 16;
-    int pb_w = SCREEN_WIDTH - 40;
-    int pb_h = 8;
+    int pb_x, pb_y, pb_w, pb_h;
+    now_playing_progress_rect(ui, &pb_x, &pb_y, &pb_w, &pb_h);
 
     uint64_t pos_ms = audio_engine_get_position(engine);
     uint64_t dur_ms = audio_engine_get_duration(engine);
     float    frac   = (dur_ms > 0) ? (float)pos_ms / (float)dur_ms : 0.0f;
+    if (ui->scrubbing) {
+        frac = ui->scrub_fraction;
+        if (dur_ms > 0)
+            pos_ms = (uint64_t)(ui->scrub_fraction * (double)dur_ms);
+    }
+    int bar_h = ui->scrubbing ? 12 : pb_h;
+    int bar_y = ui->scrubbing ? pb_y - 2 : pb_y;
 
-    ui_draw_progress_bar(pb_x, pb_y, pb_w, pb_h,
+    ui_draw_progress_bar(pb_x, bar_y, pb_w, bar_h,
                          frac, COLOR_PROGRESS, COLOR_ACCENT);
 
     /* Thumb on progress bar — custom texture if theme provides one, else circle */
     {
         int thumb_x = pb_x + (int)(frac * pb_w);
-        int thumb_y = pb_y + pb_h / 2;
+        int thumb_y = bar_y + bar_h / 2;
         vita2d_texture *pthumb = NULL;
         if (ui->theme_mgr) {
             Theme *ct = theme_current(ui->theme_mgr);
             if (ct) pthumb = ct->thumbs.progress;
         }
         if (pthumb) {
-            float sz = 16.0f;
+            float sz = ui->scrubbing ? 20.0f : 16.0f;
             int tw = vita2d_texture_get_width(pthumb);
             int th = vita2d_texture_get_height(pthumb);
             vita2d_draw_texture_scale(pthumb,
                 thumb_x - sz / 2.0f, thumb_y - sz / 2.0f,
                 sz / (float)tw, sz / (float)th);
         } else {
-            vita2d_draw_fill_circle(thumb_x, thumb_y, 8, COLOR_BG);
-            vita2d_draw_fill_circle(thumb_x, thumb_y, 7, COLOR_TEXT);
+            float r = ui->scrubbing ? 10.0f : 8.0f;
+            vita2d_draw_fill_circle(thumb_x, thumb_y, r, COLOR_BG);
+            vita2d_draw_fill_circle(thumb_x, thumb_y, r - 1.0f, COLOR_TEXT);
         }
     }
 
@@ -2028,7 +2101,7 @@ void ui_draw_now_playing(const UIState *ui,
 
     /* ── Control hints footer ── */
     draw_footer(ui,
-        "[X]Pause  [O]Back  [T]Queue  [S]Vis  L/R:Seek  [DLR]Track  [DUD]Vol  [SEL]Repeat  [STA]Shuffle");
+        "[X]Pause  [O]Back  Touch:Seek  L/R:Seek  [DLR]Track  [DUD]Vol");
 }
 
 /* ── ui_draw_visualizer ──────────────────────────────────────────────────── */

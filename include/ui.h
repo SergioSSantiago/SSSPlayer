@@ -130,6 +130,10 @@ typedef struct {
     ThemeManager *theme_mgr;
     int settings_theme_preview;  /* index browsed with L/R in Settings, applied on X */
 
+    /* Touch scrub on Now Playing progress bar (video-style seek) */
+    int   scrubbing;
+    float scrub_fraction;
+
     /* Active layout parameters (set by theme_manager_select) */
     struct {
         int album_art_size;          /* px, default 200 */
