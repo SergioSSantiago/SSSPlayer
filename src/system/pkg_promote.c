@@ -1,4 +1,4 @@
-/* head.bin generation adapted from VitaShell / VitaDeploy (GPL-3.0). */
+/* head.bin generation + promote adapted from VitaShell / VitaDeploy (GPL-3.0). */
 
 #include "system/pkg_promote.h"
 
@@ -61,6 +61,7 @@ static void fpkg_hmac(const uint8_t *data, unsigned int len, uint8_t hmac[16]) {
 	uint8_t sha1[20];
 	uint8_t buf[64];
 
+	memset(sha1, 0, sizeof(sha1));
 	mbedtls_sha1(data, len, sha1);
 	memset(buf, 0, sizeof(buf));
 	memcpy(&buf[0], &sha1[4], 8);
@@ -73,6 +74,33 @@ static void fpkg_hmac(const uint8_t *data, unsigned int len, uint8_t hmac[16]) {
 	memcpy(&buf[24], &buf[16], 8);
 	mbedtls_sha1(buf, 64, sha1);
 	memcpy(hmac, sha1, 16);
+}
+
+static int file_exists(const char *path) {
+	SceIoStat st;
+	memset(&st, 0, sizeof(st));
+	return path && path[0] && sceIoGetstat(path, &st) >= 0;
+}
+
+static int load_sce_paf(void) {
+	static uint32_t argp[] = {0x180000, (uint32_t)-1, (uint32_t)-1, 1,
+	                          (uint32_t)-1, (uint32_t)-1};
+	int result = -1;
+	SceSysmoduleOpt opt;
+	memset(&opt, 0, sizeof(opt));
+	opt.flags = sizeof(opt);
+	opt.result = &result;
+	opt.unused[0] = -1;
+	opt.unused[1] = -1;
+	return sceSysmoduleLoadModuleInternalWithArg(SCE_SYSMODULE_INTERNAL_PAF,
+	                                             sizeof(argp), argp, &opt);
+}
+
+static int unload_sce_paf(void) {
+	SceSysmoduleOpt opt;
+	memset(&opt, 0, sizeof(opt));
+	return sceSysmoduleUnloadModuleInternalWithArg(SCE_SYSMODULE_INTERNAL_PAF, 0,
+	                                               NULL, &opt);
 }
 
 static int make_head_bin(const char *path) {
@@ -113,7 +141,6 @@ static int make_head_bin(const char *path) {
 	}
 	sfo_string(sfo_buffer, "CONTENT_ID", contentid, sizeof(contentid));
 	free(sfo_buffer);
-	sfo_buffer = NULL;
 
 	head_bin = malloc(tpl_head_bin_len);
 	if (!head_bin) return -1;
@@ -154,22 +181,52 @@ static int make_head_bin(const char *path) {
 }
 
 int sss_pkg_promote(const char *path) {
+	char eboot[512];
+	char sfo[512];
+	char promote_path[320];
+	size_t n;
 	int ret;
+	int paf_loaded = 0;
 
 	if (!path || !path[0]) return -1;
+
+	snprintf(eboot, sizeof(eboot), "%s/eboot.bin", path);
+	snprintf(sfo, sizeof(sfo), "%s/sce_sys/param.sfo", path);
+	if (!file_exists(eboot) || !file_exists(sfo)) return -2;
+
 	ret = make_head_bin(path);
 	if (ret < 0) return ret;
 
+	/* Promoter is happiest with a trailing slash (VitaShell extract target). */
+	snprintf(promote_path, sizeof(promote_path), "%s", path);
+	n = strlen(promote_path);
+	if (n + 1 < sizeof(promote_path) && promote_path[n - 1] != '/') {
+		promote_path[n] = '/';
+		promote_path[n + 1] = '\0';
+	}
+
+	if (load_sce_paf() >= 0) paf_loaded = 1;
+
 	ret = sceSysmoduleLoadModuleInternal(SCE_SYSMODULE_INTERNAL_PROMOTER_UTIL);
-	if (ret < 0) return ret;
+	if (ret < 0) {
+		if (paf_loaded) unload_sce_paf();
+		return ret;
+	}
 	ret = scePromoterUtilityInit();
 	if (ret < 0) {
 		sceSysmoduleUnloadModuleInternal(SCE_SYSMODULE_INTERNAL_PROMOTER_UTIL);
+		if (paf_loaded) unload_sce_paf();
 		return ret;
 	}
-	/* Sync install; WithRif matches VitaShell / VitaDeploy for homebrew VPKs. */
-	ret = scePromoterUtilityPromotePkgWithRif(path, 1);
+
+	ret = scePromoterUtilityPromotePkgWithRif(promote_path, 1);
+	if (ret < 0)
+		ret = scePromoterUtilityPromotePkgWithRif(path, 1);
+	if (ret < 0)
+		ret = scePromoterUtilityPromotePkg(path, 1);
+
 	scePromoterUtilityExit();
 	sceSysmoduleUnloadModuleInternal(SCE_SYSMODULE_INTERNAL_PROMOTER_UTIL);
+	if (paf_loaded) unload_sce_paf();
 	return ret;
 }

@@ -31,7 +31,9 @@
 #define UPDATE_API_URL \
 	"https://api.github.com/repos/SergioSSantiago/SSSPlayer/releases/latest"
 #define UPDATE_VPK_PATH "ux0:data/SSSPlayer/update/SSSPlayer-update.vpk"
-#define UPDATE_PKG_DIR "ux0:data/SSSPlayer/update/pkg"
+#define UPDATE_VPK_FALLBACK "ux0:SSSPlayer-update.vpk"
+/* Same short package dir VitaShell uses — promoter is picky about paths. */
+#define UPDATE_PKG_DIR "ux0:data/pkg"
 #define UPDATE_DIR "ux0:data/SSSPlayer/update"
 
 typedef struct {
@@ -211,9 +213,35 @@ static void remove_tree(const char *path) {
 	}
 }
 
+static int copy_file(const char *src, const char *dst) {
+	char buf[64 * 1024];
+	SceUID in, out;
+	int n;
+	in = sceIoOpen(src, SCE_O_RDONLY, 0);
+	if (in < 0) return in;
+	sceIoRemove(dst);
+	out = sceIoOpen(dst, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
+	if (out < 0) {
+		sceIoClose(in);
+		return out;
+	}
+	while ((n = sceIoRead(in, buf, sizeof(buf))) > 0) {
+		if (sceIoWrite(out, buf, (SceSize)n) != n) {
+			sceIoClose(out);
+			sceIoClose(in);
+			sceIoRemove(dst);
+			return -1;
+		}
+	}
+	sceIoClose(out);
+	sceIoClose(in);
+	return n < 0 ? n : 0;
+}
+
 static int install_update(const UpdateInfo *info) {
 	VtDownloadJob job;
 	int result;
+	char eboot_check[320];
 
 	sceIoMkdir("ux0:data/SSSPlayer", 0777);
 	sceIoMkdir(UPDATE_DIR, 0777);
@@ -234,20 +262,44 @@ static int install_update(const UpdateInfo *info) {
 	}
 
 	ui_message_show(vt_i18n_str(VT_STR_UPDATE_INSTALLING), info->tag, 1200);
+	sceIoMkdir("ux0:data", 0777);
+	remove_tree(UPDATE_PKG_DIR);
 	if (sss_zip_extract(job.destination, UPDATE_PKG_DIR) < 0) {
+		copy_file(job.destination, UPDATE_VPK_FALLBACK);
 		ui_message_show(vt_i18n_str(VT_STR_UPDATE_FAILED_TITLE),
 		                vt_i18n_str(VT_STR_UPDATE_EXTRACT_FAILED), 3600);
+		ui_message_show(vt_i18n_str(VT_STR_UPDATE_MANUAL_TITLE),
+		                vt_i18n_str(VT_STR_UPDATE_MANUAL_DETAIL), 4500);
 		return -1;
+	}
+	snprintf(eboot_check, sizeof(eboot_check), "%s/eboot.bin", UPDATE_PKG_DIR);
+	{
+		SceIoStat st;
+		memset(&st, 0, sizeof(st));
+		if (sceIoGetstat(eboot_check, &st) < 0) {
+			copy_file(job.destination, UPDATE_VPK_FALLBACK);
+			remove_tree(UPDATE_PKG_DIR);
+			ui_message_show(vt_i18n_str(VT_STR_UPDATE_FAILED_TITLE),
+			                vt_i18n_str(VT_STR_UPDATE_EXTRACT_FAILED), 3600);
+			ui_message_show(vt_i18n_str(VT_STR_UPDATE_MANUAL_TITLE),
+			                vt_i18n_str(VT_STR_UPDATE_MANUAL_DETAIL), 4500);
+			return -1;
+		}
 	}
 	result = sss_pkg_promote(UPDATE_PKG_DIR);
 	remove_tree(UPDATE_PKG_DIR);
-	sceIoRemove(job.destination);
 	if (result < 0) {
 		char detail[96];
+		copy_file(job.destination, UPDATE_VPK_FALLBACK);
 		snprintf(detail, sizeof(detail), "0x%08X", (unsigned)result);
-		ui_message_show(vt_i18n_str(VT_STR_UPDATE_FAILED_TITLE), detail, 3600);
+		ui_message_show(vt_i18n_str(VT_STR_UPDATE_FAILED_TITLE), detail, 3200);
+		ui_message_show(vt_i18n_str(VT_STR_UPDATE_MANUAL_TITLE),
+		                vt_i18n_str(VT_STR_UPDATE_MANUAL_DETAIL), 5000);
+		sceIoRemove(job.destination);
 		return -1;
 	}
+	sceIoRemove(job.destination);
+	sceIoRemove(UPDATE_VPK_FALLBACK);
 	ui_message_show(vt_i18n_str(VT_STR_UPDATE_DONE_TITLE),
 	                vt_i18n_str(VT_STR_UPDATE_DONE_DETAIL), 3600);
 	return 0;

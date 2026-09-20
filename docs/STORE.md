@@ -9,12 +9,12 @@ Use this sheet when submitting **SSSPlayer** to [VitaDB](https://www.rinnegatama
 | **Name** | SSSPlayer |
 | **Author / Developer** | SergioSSantiago |
 | **TITLEID** | `SSSP00001` |
-| **Version** | 1.1.15 |
+| **Version** | 1.1.16 |
 | **Category** | Utility / Media player |
 | **License** | GPL-3.0-only |
 | **Source** | https://github.com/SergioSSantiago/SSSPlayer |
 | **Download** | https://github.com/SergioSSantiago/SSSPlayer/releases/latest |
-| **Direct VPK** | https://github.com/SergioSSantiago/SSSPlayer/releases/download/v1.1.15/SSSPlayer-1.1.15.vpk |
+| **Direct VPK** | https://github.com/SergioSSantiago/SSSPlayer/releases/download/v1.1.16/SSSPlayer-1.1.16.vpk |
 | **Icon** | `assets/icons/icon0.png` (128×128) |
 | **Data dir** | `ux0:data/SSSPlayer/` |
 | **NeoVitaDB id** | `1941` (`1941-sssplayer`) |
@@ -86,9 +86,9 @@ Place optional store assets under `docs/store/` if you add them later.
 - [ ] Logged in at https://www.rinnegatamante.eu/vitadb/
 - [ ] New homebrew → name **SSSPlayer**, author **SergioSSantiago**
 - [ ] TITLEID **SSSP00001**
-- [ ] Version **1.1.15**
+- [ ] Version **1.1.16**
 - [ ] Paste short + long description from this file (or `docs/store/SUBMIT_PASTE.md`)
-- [ ] Link latest GitHub release / VPK (`SSSPlayer-1.1.15.vpk`)
+- [ ] Link latest GitHub release / VPK (`SSSPlayer-1.1.16.vpk`)
 - [ ] Upload icon0.png
 - [ ] Upload screenshots
 - [ ] Confirm GPL-3.0 / open source link
