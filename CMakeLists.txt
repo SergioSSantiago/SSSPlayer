@@ -117,7 +117,7 @@ include("${VITASDK}/share/vita.cmake" REQUIRED)
 set(VITA_APP_NAME "SSSPlayer")
 set(VITA_TITLEID  "SSSP00001")
 set(VITA_VERSION  "01.01")
-set(SSSPLAYER_VERSION_LABEL "1.1.16")
+set(SSSPLAYER_VERSION_LABEL "1.1.17")
 set(SSSPLAYER_VPK_NAME "SSSPlayer-${SSSPLAYER_VERSION_LABEL}.vpk")
 
 set(VITA_MKSFOEX_FLAGS
@@ -223,7 +223,6 @@ set(SOURCES
   src/media/hw_player_screen.c
   src/media/image_loader.c
   src/media/music_metadata.c
-  src/media/music_library.c
   ## Video UI surfaces
   src/ui/font.c
   src/ui/format.c
@@ -239,7 +238,6 @@ set(SOURCES
   src/ui/sections_sidebar.c
   src/ui/local_media_screen.c
   src/ui/local_files_screen.c
-  src/ui/music_library_screen.c
   src/ui/music_player.c
   src/ui/settings_screen.c
   src/ui/about_screen.c

@@ -32,11 +32,6 @@
 #include "ui/runtime.h"
 #include "ui/sections_sidebar.h"
 #include "ui/touch.h"
-#include "ui/music_library_screen.h"
-#include "media/music_library.h"
-#include "metadata.h"
-#include "playlist.h"
-#include "ui.h"
 
 #include <vita_https.h>
 
@@ -243,45 +238,6 @@ int sss_video_browse_library(void)
 			continue;
 		}
 		if (action == UI_LOCAL_MEDIA_ACTION_BROWSE_FOLDER) {
-			if (sss_path_is_music_tree(item.path) ||
-			    item.type == VT_LOCAL_MEDIA_AUDIO) {
-				char play_path[VT_LOCAL_MEDIA_PATH_MAX];
-				if (ui_music_library_run(item.path, play_path,
-				                         sizeof(play_path)) ==
-				        UI_MUSIC_LIB_PLAY &&
-				    play_path[0]) {
-					AudioEngine *engine = get_audio_engine();
-					Playlist *playlist = get_playlist();
-					UIState *ui = get_ui_state();
-					if (engine &&
-					    audio_engine_play(engine, play_path) == 0) {
-						TrackMetadata *meta = get_current_meta();
-						if (ui) ui_switch_screen(ui, UI_SCREEN_NOW_PLAYING);
-						if (meta) {
-							metadata_free(meta);
-							metadata_load(meta, play_path);
-						}
-						if (playlist) {
-							char dir[VT_LOCAL_MEDIA_PATH_MAX];
-							char *slash;
-							playlist_clear(playlist);
-							snprintf(dir, sizeof(dir), "%s", play_path);
-							slash = strrchr(dir, '/');
-							if (slash) *slash = '\0';
-							playlist_add_directory(playlist, dir);
-							for (int i = 0; i < playlist->count; i++) {
-								if (!strcmp(playlist->entries[i].filepath,
-								            play_path)) {
-									playlist_set_index(playlist, i);
-									break;
-								}
-							}
-						}
-						return 0;
-					}
-				}
-				continue;
-			}
 			folder_browser = 1;
 			folder_resume = 0;
 			snprintf(folder_root, sizeof(folder_root), "%s", item.path);

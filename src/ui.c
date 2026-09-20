@@ -27,8 +27,6 @@
 #include "equalizer.h"
 #include "ui/touch.h"
 #include "system/app_update.h"
-#include "media/music_library.h"
-#include "ui/music_library_screen.h"
 
 #ifndef SSSPLAYER_VERSION_LABEL
 #define SSSPLAYER_VERSION_LABEL "0.0.0"
@@ -408,59 +406,7 @@ void ui_handle_input(UIState *ui,
         if (just_pressed & SCE_CTRL_CROSS) {
             if (browser && ui->list_selected < browser->count) {
                 FileEntry *e = &browser->entries[ui->list_selected];
-                if (e->is_directory && sss_path_is_music_tree(e->path)) {
-                    char play_path[MAX_PATH_LEN];
-                    if (ui_music_library_run(e->path, play_path,
-                                             sizeof(play_path)) ==
-                            UI_MUSIC_LIB_PLAY &&
-                        play_path[0] && engine) {
-                        if (audio_engine_play(engine, play_path) == 0) {
-                            ui_switch_screen(ui, UI_SCREEN_NOW_PLAYING);
-                            TrackMetadata *meta = get_current_meta();
-                            metadata_free(meta);
-                            metadata_load(meta, play_path);
-                            if (playlist) {
-                                char dir[MAX_PATH_LEN];
-                                char *slash;
-                                playlist_clear(playlist);
-                                snprintf(dir, sizeof(dir), "%s", play_path);
-                                slash = strrchr(dir, '/');
-                                if (slash) *slash = '\0';
-                                {
-                                    const char *base = strrchr(dir, '/');
-                                    strncpy(playlist->name,
-                                            base ? base + 1 : dir,
-                                            MAX_PLAYLIST_NAME - 1);
-                                    playlist->name[MAX_PLAYLIST_NAME - 1] = '\0';
-                                }
-                                playlist_add_directory(playlist, dir);
-                                for (int i = 0; i < playlist->count; i++) {
-                                    if (strcmp(playlist->entries[i].filepath,
-                                               play_path) == 0) {
-                                        playlist_set_index(playlist, i);
-                                        if (meta->title[0])
-                                            strncpy(
-                                                playlist->entries[i].title,
-                                                meta->title,
-                                                sizeof(playlist->entries[i]
-                                                           .title) -
-                                                    1);
-                                        if (meta->artist[0])
-                                            strncpy(
-                                                playlist->entries[i].artist,
-                                                meta->artist,
-                                                sizeof(playlist->entries[i]
-                                                           .artist) -
-                                                    1);
-                                        playlist->entries[i].duration_ms =
-                                            meta->duration_ms;
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                } else if (e->is_directory) {
+                if (e->is_directory) {
                     file_browser_navigate_into(browser, e->path);
                     ui->list_selected = 0;
                     ui->list_offset   = 0;
