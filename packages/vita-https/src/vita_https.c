@@ -195,8 +195,13 @@ VitaHttpsClient *vita_https_client_create(const VitaHttpsClientConfig *config) {
 	client->allow_http = config && config->allow_http;
 	client->connect_timeout_ms = config && config->connect_timeout_ms > 0
 	                           ? config->connect_timeout_ms : 10000;
-	client->request_timeout_ms = config && config->request_timeout_ms > 0
-	                           ? config->request_timeout_ms : 20000;
+	/* 0 = no overall transfer deadline (stall detection still uses low-speed). */
+	if (config && config->request_timeout_ms == 0)
+		client->request_timeout_ms = 0;
+	else if (config && config->request_timeout_ms > 0)
+		client->request_timeout_ms = config->request_timeout_ms;
+	else
+		client->request_timeout_ms = 20000;
 	client->low_speed_limit = config && config->low_speed_bytes_per_second > 0
 	                         ? config->low_speed_bytes_per_second : 1024;
 	client->low_speed_time = config && config->low_speed_seconds > 0

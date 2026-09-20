@@ -27,6 +27,8 @@ typedef struct VitaHttpsClientConfig {
 	const char *username;
 	const char *password;
 	long connect_timeout_ms;
+	/* Overall transfer deadline in ms. 0 disables the deadline (stall
+	 * detection still uses low_speed_*). Omit / negative uses 20000. */
 	long request_timeout_ms;
 	long low_speed_bytes_per_second;
 	long low_speed_seconds;

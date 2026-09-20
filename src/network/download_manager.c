@@ -140,45 +140,101 @@ static size_t url_write(const void *data, size_t size, void *opaque) {
 
 static int download_url(VtDownloadJob *job, const char *part) {
 	VitaHttpsClientConfig config;
+	const char *headers[4];
+	int header_n = 0;
+	int attempt;
+	int result = -1;
+	const int max_attempts = 3;
+
 	memset(&config, 0, sizeof(config));
 	/* Plain HTTP is an explicit direct-download choice. vita-https still keeps
 	 * HTTPS verification enabled and forbids HTTPS-to-HTTP redirect downgrades. */
 	config.allow_http = 1;
-	VitaHttpsClient *client = vita_https_client_create(&config);
-	if (!client) return -1;
-	/* Probe metadata before GET so direct HTTP(S) downloads get a live progress
-	 * bar rather than learning Content-Length only after the transfer ends. */
-	VitaHttpsRequest head = { .method = "HEAD", .url = job->url,
-		.cancel_flag = &job->cancel };
-	VitaHttpsResponse head_response;
-	memset(&head_response, 0, sizeof(head_response));
-	if (vita_https_perform(client, &head, &head_response) == 0 &&
-	    head_response.status_code >= 200 && head_response.status_code < 300 &&
-	    head_response.content_length > 0)
-		job->progress_total = head_response.content_length > LONG_MAX
-		                    ? LONG_MAX : (long)head_response.content_length;
-	if (job->cancel) {
+	config.user_agent =
+	    "Mozilla/5.0 (PlayStation Vita) SSSPlayer/1.0 AppleWebKit/531.22.8";
+	/* YouTube progressive files are large; do not apply a short overall
+	 * CURLOPT_TIMEOUT. Detect dead links with a generous low-speed window. */
+	config.connect_timeout_ms = 30000;
+	config.request_timeout_ms = 0;
+	config.low_speed_bytes_per_second = 256;
+	config.low_speed_seconds = 120;
+
+	headers[header_n++] = "Accept: */*";
+	if (strstr(job->url, "googlevideo.com") || strstr(job->url, "youtube.com"))
+		headers[header_n++] = "Referer: https://www.youtube.com/";
+	headers[header_n] = NULL;
+
+	for (attempt = 0; attempt < max_attempts; attempt++) {
+		VitaHttpsClient *client;
+		SceUID fd;
+		UrlWrite writer;
+		VitaHttpsRequest request;
+		VitaHttpsResponse response;
+
+		if (job->cancel) return -1;
+		if (attempt > 0) {
+			snprintf(job->detail, sizeof(job->detail),
+			         "Retrying download (%d/%d)…", attempt + 1, max_attempts);
+			sceKernelDelayThread(1500 * 1000);
+			sceIoRemove(part);
+		}
+
+		client = vita_https_client_create(&config);
+		if (!client) {
+			snprintf(job->detail, sizeof(job->detail), "HTTPS unavailable");
+			return -1;
+		}
+
+		/* Skip HEAD: googlevideo often rejects it and it burns connect time. */
+		fd = sceIoOpen(part, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
+		if (fd < 0) {
+			vita_https_client_destroy(client);
+			snprintf(job->detail, sizeof(job->detail), "Could not create file");
+			return -1;
+		}
+		writer.job = job;
+		writer.fd = fd;
+		writer.transferred = 0;
+		memset(&request, 0, sizeof(request));
+		request.method = "GET";
+		request.url = job->url;
+		request.headers = headers;
+		request.write = url_write;
+		request.write_opaque = &writer;
+		request.cancel_flag = &job->cancel;
+		memset(&response, 0, sizeof(response));
+		result = vita_https_perform(client, &request, &response);
+		if (response.content_length > 0)
+			job->progress_total = response.content_length > LONG_MAX
+			                          ? LONG_MAX
+			                          : (long)response.content_length;
+		if (result < 0 || response.status_code < 200 ||
+		    response.status_code >= 300) {
+			if (!job->detail[0])
+				snprintf(job->detail, sizeof(job->detail), "%s",
+				         job->cancel ? "Download cancelled"
+				                     : vita_https_error_string(result));
+			result = -1;
+		} else {
+			result = 0;
+		}
 		vita_https_client_destroy(client);
-		return -1;
+		result = finish_file(job, fd, part, result);
+		if (result == 0 || job->cancel) return result;
+		/* Retry timeouts / stalls; other errors fail immediately. */
+		if (!job->detail[0] ||
+		    (!strstr(job->detail, "Timeout") &&
+		     !strstr(job->detail, "timeout") &&
+		     !strstr(job->detail, "timed out") &&
+		     !strstr(job->detail, "too slow") &&
+		     !strstr(job->detail, "low speed")))
+			return result;
+		job->detail[0] = '\0';
+		job->progress_current = 0;
 	}
-	SceUID fd = sceIoOpen(part, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
-	if (fd < 0) { vita_https_client_destroy(client); return -1; }
-	UrlWrite writer = { job, fd, 0 };
-	VitaHttpsRequest request = { .method = "GET", .url = job->url,
-		.write = url_write, .write_opaque = &writer, .cancel_flag = &job->cancel };
-	VitaHttpsResponse response;
-	memset(&response, 0, sizeof(response));
-	int result = vita_https_perform(client, &request, &response);
-	if (response.content_length > 0)
-		job->progress_total = response.content_length > LONG_MAX ? LONG_MAX
-		                    : (long)response.content_length;
-	if (result < 0 || response.status_code < 200 || response.status_code >= 300) {
-		if (!job->detail[0]) snprintf(job->detail, sizeof(job->detail), "%s",
-		                              job->cancel ? "Download cancelled" : vita_https_error_string(result));
-		result = -1;
-	} else result = 0;
-	vita_https_client_destroy(client);
-	return finish_file(job, fd, part, result);
+	if (!job->detail[0])
+		snprintf(job->detail, sizeof(job->detail), "Timeout was reached");
+	return result;
 }
 
 void vt_download_job_init_network(VtDownloadJob *job, const VtNetworkSource *source,

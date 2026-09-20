@@ -24,6 +24,7 @@
 #include "ui/components.h"
 #include "ui/focus_glow.h"
 #include "ui/format.h"
+#include "ui/loading_screen.h"
 #include "ui/mini_player.h"
 #include "ui/runtime.h"
 #include "ui/sections_sidebar.h"
@@ -463,9 +464,28 @@ static void draw_video_preview(vita2d_texture *texture, float x, float y,
 	                               width / source_w, height / source_h);
 }
 
+static int delete_selected_file(LocalFileEntry *entries, int *count,
+	                            int *selected, int *top) {
+	if (!entries || !count || !selected || *selected < 0 ||
+	    *selected >= *count)
+		return -1;
+	LocalFileEntry *entry = &entries[*selected];
+	if (entry->is_directory || !entry->media.path[0]) return -1;
+	if (sceIoRemove(entry->media.path) < 0) return -1;
+	memmove(entry, entry + 1,
+	        (size_t)(*count - *selected - 1) * sizeof(*entries));
+	(*count)--;
+	memset(&entries[*count], 0, sizeof(entries[*count]));
+	if (*selected >= *count && *count > 0) *selected = *count - 1;
+	if (*selected < 0) *selected = 0;
+	if (*top > *selected) *top = *selected;
+	ui_local_files_cache_invalidate();
+	return 0;
+}
+
 static void draw_files(const LocalFileEntry *entries, int count,
 	                   int selected, int top, int grid_mode,
-	                   const UiFocusMotion *focus_motion) {
+	                   int delete_confirm, const UiFocusMotion *focus_motion) {
 	ui_mini_player_pump();
 	vt_video_thumbnail_pump();
 	vita2d_start_drawing();
@@ -613,7 +633,31 @@ static void draw_files(const LocalFileEntry *entries, int count,
 		}
 		vita2d_disable_clipping();
 	}
+	int can_delete = count > 0 && selected >= 0 && selected < count &&
+	                 !entries[selected].is_directory;
+	if (!delete_confirm && can_delete)
+		ui_action_button(668, 466, 226, 38, VT_THEME_SURFACE_RAISED,
+		                 "Square", vt_i18n_str(VT_STR_LOCAL_MEDIA_ACTION_DELETE),
+		                 0);
 	ui_mini_player_draw();
+	if (delete_confirm) {
+		vita2d_draw_rectangle(0, UI_BRAND_HEADER_HEIGHT, 960,
+		                      544 - UI_BRAND_HEADER_HEIGHT, RGBA8(0, 3, 7, 186));
+		ui_panel(208, 174, 544, 190, VT_THEME_SURFACE_RAISED,
+		         VT_THEME_DANGER, 0);
+		if (body)
+			ui_font_draw_text(body, 244, 224, VT_THEME_TEXT, UI_FONT_BODY,
+			                  vt_i18n_str(VT_STR_LOCAL_MEDIA_DELETE_TITLE));
+		if (small)
+			ui_font_draw_text(small, 244, 258, VT_THEME_TEXT_MUTED,
+			                  UI_FONT_SMALL,
+			                  vt_i18n_str(VT_STR_LOCAL_MEDIA_DELETE_DETAIL));
+		ui_action_button(236, 294, 226, 48, VT_THEME_SURFACE,
+		                 "Circle", vt_i18n_str(VT_STR_LOCAL_MEDIA_CANCEL), 0);
+		ui_action_button(480, 294, 244, 48, VT_THEME_DANGER,
+		                 "Cross", vt_i18n_str(VT_STR_LOCAL_MEDIA_ACTION_DELETE),
+		                 1);
+	}
 	vita2d_end_drawing();
 	vita2d_wait_rendering_done();
 	vita2d_swap_buffers();
@@ -640,6 +684,7 @@ int ui_local_files_screen_open(const char *root, VtLocalMediaType filter,
 		count = load_entries_cached(g_last_path, entries, &selected, &top);
 	}
 	int grid_mode = vt_preferences_file_browser_grid();
+	int delete_confirm = 0;
 	UiFocusMotion focus;
 	ui_focus_motion_reset(&focus);
 	UiNavRepeat repeat;
@@ -661,6 +706,20 @@ int ui_local_files_screen_open(const char *root, VtLocalMediaType filter,
 			pressed = 0;
 			controls.buttons = 0;
 			controls.lx = controls.ly = 128;
+		}
+		if (delete_confirm) {
+			if (pressed & SCE_CTRL_CROSS) {
+				if (delete_selected_file(entries, &count, &selected, &top) < 0)
+					ui_message_show(vt_i18n_str(VT_STR_LOCAL_MEDIA_ACTION_FAILED),
+					                "", 2200);
+				delete_confirm = 0;
+				ui_focus_motion_reset(&focus);
+			}
+			if (pressed & SCE_CTRL_CIRCLE) delete_confirm = 0;
+			draw_files(entries, count, selected, top, grid_mode, delete_confirm,
+			           &focus);
+			sceKernelDelayThread(1000);
+			continue;
 		}
 		if (pressed & SCE_CTRL_RTRIGGER) {
 			grid_mode = !grid_mode;
@@ -710,6 +769,9 @@ int ui_local_files_screen_open(const char *root, VtLocalMediaType filter,
 				if (hit) { selected = first + slot; pressed |= SCE_CTRL_CROSS; break; }
 			}
 		}
+		if ((pressed & SCE_CTRL_SQUARE) && count &&
+		    !entries[selected].is_directory)
+			delete_confirm = 1;
 		if ((pressed & SCE_CTRL_CROSS) && count) {
 			LocalFileEntry *entry = &entries[selected];
 			if (entry->is_directory) {
@@ -745,7 +807,8 @@ int ui_local_files_screen_open(const char *root, VtLocalMediaType filter,
 			vt_video_thumbnail_suspend();
 			vt_video_thumbnail_resume();
 		}
-		draw_files(entries, count, selected, top, grid_mode, &focus);
+		draw_files(entries, count, selected, top, grid_mode, delete_confirm,
+		           &focus);
 		sceKernelDelayThread(1000);
 	}
 }
