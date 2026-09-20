@@ -3,8 +3,8 @@
 
 #include <vita2d.h>
 
-/* SSSPlayer video surfaces use the Vitawave Terminus CRT palette so the
- * player HUD matches the default music shell instead of Spectral cyan. */
+/* SSSPlayer video surfaces use the Terminus CRT palette so the
+ * player HUD matches the default music shell. */
 #define VT_THEME_BG             RGBA8(4, 10, 4, 255)
 #define VT_THEME_BG_SOFT        RGBA8(10, 26, 10, 255)
 #define VT_THEME_MEDIA_BACKDROP RGBA8(4, 10, 4, 255)

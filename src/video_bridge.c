@@ -1,5 +1,5 @@
 /*
- * SSSPlayer – bridge from the Vitawave shell into the VideoSSS player stack.
+ * SSSPlayer – bridge from the music shell into the video player stack.
  */
 #include "video_bridge.h"
 
@@ -211,7 +211,7 @@ int sss_video_browse_library(void)
 			} else if (item.type == VT_LOCAL_MEDIA_VIDEO) {
 				play_local_video_path(item.path, item.name);
 			}
-			/* Audio stays on the Vitawave music engine. */
+			/* Audio stays on the music engine. */
 		}
 	}
 }

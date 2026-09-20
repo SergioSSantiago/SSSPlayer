@@ -637,7 +637,7 @@ static void draw_screen(int tab, int cursor, float focus,
 			draw_value(small, y, row_width, language_label(rows[i].value));
 		else if (rows[i].kind == ROW_CLOCK)
 			draw_value(small, y, row_width, rows[i].value == VT_CLOCK_SOURCE_APP
-			                       ? "VideoSSS 444/222/222/111"
+			                       ? "SSSPlayer 444/222/222/111"
 			                       : vt_i18n_str(VT_STR_SETTINGS_CLOCK_SOURCE_PSVSHELL));
 		else if (rows[i].kind == ROW_MAPPING)
 			draw_value(small, y, row_width, vt_i18n_str(rows[i].value

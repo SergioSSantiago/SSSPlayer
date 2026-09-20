@@ -11,7 +11,11 @@
 #define MAX_DIRS_DEEP       16
 #define MUSIC_ROOT_UX0      "ux0:/music/"
 #define MUSIC_ROOT_UMA0     "uma0:/music/"
-#define MUSIC_ROOT          ""   /* virtual root: lists both mounts */
+#define VIDEO_ROOT_UX0      "ux0:/video/"
+#define VIDEO_ROOT_UMA0     "uma0:/video/"
+#define MOVIES_ROOT_UX0     "ux0:/movies/"
+#define MOVIES_ROOT_UMA0    "uma0:/movies/"
+#define MUSIC_ROOT          ""   /* virtual root: lists music + video mounts */
 
 /* ── File types ───────────────────────────────────────────────────────────── */
 typedef enum {
@@ -54,7 +58,7 @@ typedef struct {
 
 /**
  * Allocate and initialise a FileList, set current_dir to the virtual root
- * (lists ux0:/music/ and uma0:/music/ when present).
+ * (lists ux0/uma0 music and video folders when present).
  * Returns a valid FileList* on success, NULL on allocation failure.
  */
 FileList *file_browser_init(void);

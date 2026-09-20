@@ -127,7 +127,15 @@ int main(void)
         if (db_tid >= 0) sceKernelStartThread(db_tid, 0, NULL);
     }
 
-    /* Scan music directory */
+    /* Ensure media folders exist so they appear in the browser root list */
+    sceIoMkdir("ux0:/music", 0777);
+    sceIoMkdir("ux0:/video", 0777);
+    sceIoMkdir("ux0:/movies", 0777);
+    sceIoMkdir("uma0:/music", 0777);
+    sceIoMkdir("uma0:/video", 0777);
+    sceIoMkdir("uma0:/movies", 0777);
+
+    /* Scan virtual media root (music + video mounts) */
     file_browser_scan_dir(g_browser, MUSIC_ROOT);
 
     /* ── Playlist ── */

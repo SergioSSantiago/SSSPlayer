@@ -226,7 +226,7 @@ static int authorization_header(const char *token, char *out, size_t out_size) {
 	if (token && token[0] && !safe_header_value(token)) return -1;
 	int written = snprintf(
 	    out, out_size,
-	    "Authorization: MediaBrowser Client=\"VitaMediaDeck\", "
+	    "Authorization: MediaBrowser Client=\"SSSPlayer\", "
 	    "Device=\"PlayStation Vita\", DeviceId=\"%s\", Version=\"%s\"%s%s%s",
 	    JELLYFIN_DEVICE_ID, JELLYFIN_CLIENT_VERSION,
 	    token && token[0] ? ", Token=\"" : "",
@@ -238,7 +238,7 @@ static int authorization_header(const char *token, char *out, size_t out_size) {
 static void jellyfin_client_config(const VtNetworkSource *source,
 	                               VitaHttpsClientConfig *config) {
 	memset(config, 0, sizeof(*config));
-	config->user_agent = "VitaMediaDeck/1.1";
+	config->user_agent = "SSSPlayer/1.1";
 	config->connect_timeout_ms = 5000;
 	config->request_timeout_ms = 12000;
 	config->low_speed_bytes_per_second = 1024;
@@ -1185,7 +1185,7 @@ int vt_jellyfin_open_stream(const VtNetworkSource *source,
 	stream->reset_pending = 1;
 	jellyfin_publish_cache(stream, 0, 0, 0);
 	stream->worker_thid = sceKernelCreateThread(
-	    "VitaMediaDeckJellyfinPrefetch", jellyfin_prefetch_worker,
+	    "SSSPlayerJellyfinPrefetch", jellyfin_prefetch_worker,
 	    JELLYFIN_PREFETCH_THREAD_CREATE_PRIORITY,
 	    JELLYFIN_PREFETCH_THREAD_STACK, 0, 0, NULL);
 	if (stream->worker_thid < 0) {

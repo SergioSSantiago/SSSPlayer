@@ -1187,7 +1187,7 @@ static int subtitle_reader_start(VtSubtitleReader *reader) {
 	reader->cancel = 0;
 	reader->operation_cancel = 0;
 	reader->thid = sceKernelCreateThread(
-		"VitaMediaDeckSubtitles", subtitle_worker,
+		"SSSPlayerSubtitles", subtitle_worker,
 		SUBTITLE_THREAD_CREATE_PRIORITY,
 		SUBTITLE_THREAD_STACK, 0, 0, NULL);
 	if (reader->thid < 0) return reader->thid;

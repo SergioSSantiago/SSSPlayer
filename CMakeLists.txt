@@ -10,7 +10,7 @@ endif()
 
 project(SSSPlayer C)
 
-## VideoSSS-derived hardware decode stack (pinned deps under build/deps).
+## Hardware decode stack (pinned deps under build/deps).
 option(SSSPLAYER_ENABLE_H264_VITA
   "Use the complete FFmpeg h264_vita hardware decoder" ON)
 if(NOT SSSPLAYER_ENABLE_H264_VITA)
@@ -116,7 +116,9 @@ include("${VITASDK}/share/vita.cmake" REQUIRED)
 
 set(VITA_APP_NAME "SSSPlayer")
 set(VITA_TITLEID  "SSSP00001")
-set(VITA_VERSION  "01.00")
+set(VITA_VERSION  "01.01")
+set(SSSPLAYER_VERSION_LABEL "1.1.0")
+set(SSSPLAYER_VPK_NAME "SSSPlayer-${SSSPLAYER_VERSION_LABEL}.vpk")
 
 set(VITA_MKSFOEX_FLAGS
   "-d ATTRIBUTE=17338376"
@@ -132,7 +134,7 @@ set(VITA_MKSFOEX_FLAGS
   "-d PSP2_SYSTEM_VER=56623104"
   "-d REGION_DENY=0"
   "-d SAVEDATA_MAX_SIZE=0"
-  "-s VERSION=01.00"
+  "-s VERSION=01.01"
 )
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -std=gnu11")
@@ -162,9 +164,9 @@ add_subdirectory("${VITAMEDIADECK_HTTPS_PACKAGE}"
                  "${CMAKE_BINARY_DIR}/packages/vita-https")
 target_compile_options(vita_https PRIVATE $<$<CONFIG:Release>:-O3>)
 
-## Vitawave music shell + VideoSSS playback / network stack.
+## Music shell + video playback / network stack.
 set(SOURCES
-  ## Vitawave shell
+  ## Music shell
   src/main.c
   src/audio_engine.c
   src/decoder_mp3.c
@@ -188,7 +190,7 @@ set(SOURCES
   sqlite/sqlite3.c
   ## Video bridge
   src/video_bridge.c
-  ## VideoSSS common / i18n / settings / system / history
+  ## Common / i18n / settings / system / history
   src/common/debugScreen.c
   src/common/text_log.c
   src/i18n/i18n.c
@@ -215,7 +217,7 @@ set(SOURCES
   src/media/hw_player_screen.c
   src/media/image_loader.c
   src/media/music_metadata.c
-  ## VideoSSS UI (player shell surfaces)
+  ## Video UI surfaces
   src/ui/font.c
   src/ui/format.c
   src/ui/components.c
@@ -314,7 +316,7 @@ target_link_libraries(${PROJECT_NAME}
 set(VITA_MKSFOEX_FLAGS "${VITA_MKSFOEX_FLAGS} -d ATTRIBUTE2=12")
 vita_create_self(${PROJECT_NAME}.self ${PROJECT_NAME} UNSAFE NOASLR)
 
-vita_create_vpk(${PROJECT_NAME}.vpk ${VITA_TITLEID} ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}.self
+vita_create_vpk(${SSSPLAYER_VPK_NAME} ${VITA_TITLEID} ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}.self
   VERSION ${VITA_VERSION}
   NAME ${VITA_APP_NAME}
   FILE assets/icons/icon0.png    sce_sys/icon0.png

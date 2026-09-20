@@ -77,8 +77,8 @@ static bool is_virtual_root(const char *path)
     return !path || path[0] == '\0';
 }
 
-/* True if path is ux0:/music or uma0:/music (optional trailing slash) */
-static bool is_music_mount_root(const char *path)
+/* True if path is a top-level media mount (music/video/movies on ux0/uma0) */
+static bool is_media_mount_root(const char *path)
 {
     if (!path || !path[0]) return false;
 
@@ -91,7 +91,17 @@ static bool is_music_mount_root(const char *path)
         buf[len - 1] = '\0';
 
     return strcmp(buf, "ux0:/music")  == 0 ||
-           strcmp(buf, "uma0:/music") == 0;
+           strcmp(buf, "uma0:/music") == 0 ||
+           strcmp(buf, "ux0:/video")  == 0 ||
+           strcmp(buf, "uma0:/video") == 0 ||
+           strcmp(buf, "ux0:/movies") == 0 ||
+           strcmp(buf, "uma0:/movies") == 0 ||
+           strcmp(buf, "ux0:music")   == 0 ||
+           strcmp(buf, "uma0:music")  == 0 ||
+           strcmp(buf, "ux0:video")   == 0 ||
+           strcmp(buf, "uma0:video")  == 0 ||
+           strcmp(buf, "ux0:movies")  == 0 ||
+           strcmp(buf, "uma0:movies") == 0;
 }
 
 /* Ensure entries buffer is ready for a fresh listing */
@@ -128,7 +138,7 @@ static void try_add_mount(FileList *list, const char *path, const char *label)
     list->count++;
 }
 
-/* Virtual root: list ux0:/music/ and uma0:/music/ when present */
+/* Virtual root: list music + video mounts on ux0/uma0 when present */
 static int scan_virtual_root(FileList *list)
 {
     int prep = prepare_entries(list);
@@ -136,6 +146,10 @@ static int scan_virtual_root(FileList *list)
 
     try_add_mount(list, MUSIC_ROOT_UX0,  "ux0:/music");
     try_add_mount(list, MUSIC_ROOT_UMA0, "uma0:/music");
+    try_add_mount(list, VIDEO_ROOT_UX0,  "ux0:/video");
+    try_add_mount(list, VIDEO_ROOT_UMA0, "uma0:/video");
+    try_add_mount(list, MOVIES_ROOT_UX0, "ux0:/movies");
+    try_add_mount(list, MOVIES_ROOT_UMA0, "uma0:/movies");
 
     list->current_dir[0] = '\0';
     list->parent_dir[0]  = '\0';
@@ -385,7 +399,7 @@ int file_browser_navigate_up(FileList *list)
     if (is_virtual_root(list->current_dir)) return -1;
 
     /* At a mount root (ux0 or uma0) — return to virtual root */
-    if (is_music_mount_root(list->current_dir))
+    if (is_media_mount_root(list->current_dir))
         return scan_virtual_root(list);
 
     if (list->parent_dir[0] == '\0') return -1;

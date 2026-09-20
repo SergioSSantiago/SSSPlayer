@@ -20,7 +20,7 @@
 #define PASSWORDS_TEMP VITAMEDIADECK_NETWORK_DIR "/passwords.tmp"
 #define PASSWORDS_BACKUP VITAMEDIADECK_NETWORK_DIR "/passwords.bak"
 
-static const char g_passwords_header[] = "# VitaMediaDeck network passwords v1\n";
+static const char g_passwords_header[] = "# SSSPlayer network passwords v1\n";
 
 typedef struct {
 	char magic[8];

@@ -1,5 +1,5 @@
 VT_STR(SETTINGS_TITLE, "Impostazioni", "Settings")
-VT_STR(SETTINGS_CLOCK_SOURCE_APP, "VideoSSS", "VideoSSS")
+VT_STR(SETTINGS_CLOCK_SOURCE_APP, "SSSPlayer", "SSSPlayer")
 VT_STR(SETTINGS_CLOCK_SOURCE_PSVSHELL, "PSVshell manuale", "PSVshell manual")
 VT_STR(SETTINGS_TAB_PLAYBACK, "Riproduzione", "Playback")
 VT_STR(SETTINGS_TAB_SUBTITLES, "Sottotitoli", "Subtitles")

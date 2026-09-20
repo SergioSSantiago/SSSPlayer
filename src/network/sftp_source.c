@@ -264,7 +264,7 @@ static void sftp_disconnect(SftpConnection *connection) {
 	if (connection->session && !forced && !connection->sftp) {
 		do {
 			result = libssh2_session_disconnect(
-			    connection->session, "VitaMediaDeck closed the connection");
+			    connection->session, "SSSPlayer closed the connection");
 			if (result != LIBSSH2_ERROR_EAGAIN) break;
 		} while (sftp_wait_session(connection, deadline) == 0);
 		if (result == LIBSSH2_ERROR_EAGAIN) {

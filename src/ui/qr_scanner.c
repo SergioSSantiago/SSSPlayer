@@ -308,7 +308,7 @@ static int qr_decode_thread(SceSize args, void *argp) {
 #if QR_DEBUG_DIAGNOSTICS
 static void save_debug_frame(QrDecodeWorker *worker) {
 	if (!worker || worker->debug_frame_saved) return;
-	const char *path = "ux0:data/VitaMediaDeck/qr-debug-frame.pgm";
+	const char *path = "ux0:data/SSSPlayer/qr-debug-frame.pgm";
 	SceUID fd = sceIoOpen(path, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
 	if (fd < 0) {
 		log_printf("qr debug: frame dump open -> 0x%08X\n", (unsigned int)fd);
@@ -535,7 +535,7 @@ int ui_qr_scan_https_url(char *out, size_t out_size) {
 	           quirc_version(), QR_DECODE_WIDTH, QR_DECODE_HEIGHT,
 	           QR_DECODE_SMALL_WIDTH, QR_DECODE_SMALL_HEIGHT);
 	#endif
-	worker->thid = sceKernelCreateThread("VitaMediaDeckQrDecode", qr_decode_thread,
+	worker->thid = sceKernelCreateThread("SSSPlayerQrDecode", qr_decode_thread,
 	                                     QR_WORKER_PRIORITY, QR_WORKER_STACK, 0, 0, NULL);
 	if (worker->thid < 0 ||
 	    sceKernelStartThread(worker->thid, sizeof(worker), &worker) < 0) {

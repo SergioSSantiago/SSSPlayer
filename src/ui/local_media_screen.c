@@ -34,14 +34,14 @@
 #define LOCAL_MAX_ITEMS 65536
 #define LOCAL_PAGE_ITEMS 24
 #define LOCAL_SCAN_THREAD_STACK 0x40000
-#define LOCAL_INDEX_PATH "ux0:data/VitaMediaDeck/local_media.idx"
-#define LOCAL_INDEX_TEMP "ux0:data/VitaMediaDeck/local_media.tmp"
-#define LOCAL_INDEX_BACKUP "ux0:data/VitaMediaDeck/local_media.bak"
-#define LOCAL_ROOT_CACHE_PATH "ux0:data/VitaMediaDeck/local_roots.cache"
-#define LOCAL_ROOT_CACHE_TEMP "ux0:data/VitaMediaDeck/local_roots.tmp"
-#define LOCAL_GROUP_VIDEO_TEMP "ux0:data/VitaMediaDeck/local_video.tmp"
-#define LOCAL_GROUP_AUDIO_TEMP "ux0:data/VitaMediaDeck/local_audio.tmp"
-#define LOCAL_GROUP_IMAGE_TEMP "ux0:data/VitaMediaDeck/local_image.tmp"
+#define LOCAL_INDEX_PATH "ux0:data/SSSPlayer/local_media.idx"
+#define LOCAL_INDEX_TEMP "ux0:data/SSSPlayer/local_media.tmp"
+#define LOCAL_INDEX_BACKUP "ux0:data/SSSPlayer/local_media.bak"
+#define LOCAL_ROOT_CACHE_PATH "ux0:data/SSSPlayer/local_roots.cache"
+#define LOCAL_ROOT_CACHE_TEMP "ux0:data/SSSPlayer/local_roots.tmp"
+#define LOCAL_GROUP_VIDEO_TEMP "ux0:data/SSSPlayer/local_video.tmp"
+#define LOCAL_GROUP_AUDIO_TEMP "ux0:data/SSSPlayer/local_audio.tmp"
+#define LOCAL_GROUP_IMAGE_TEMP "ux0:data/SSSPlayer/local_image.tmp"
 #define LOCAL_SCAN_VIDEO_AUDIO 3U
 #define LOCAL_SCAN_IMAGE 4U
 #define LIST_X 52
@@ -631,7 +631,7 @@ static int scan_media(LocalMediaIndexHeader *result_index) {
 	if (!result_index) return -1;
 	LocalMediaIndexHeader index;
 	memset(&index, 0, sizeof(index));
-	sceIoMkdir("ux0:data/VitaMediaDeck", 0777);
+	sceIoMkdir("ux0:data/SSSPlayer", 0777);
 	sceIoRemove(LOCAL_INDEX_TEMP);
 	sceIoRemove(LOCAL_GROUP_VIDEO_TEMP);
 	sceIoRemove(LOCAL_GROUP_AUDIO_TEMP);
@@ -781,7 +781,7 @@ static int local_scan_start(void) {
 	memset(&g_scan_job, 0, sizeof(g_scan_job));
 	g_scan_job.self = &g_scan_job;
 	g_scan_job.thid = sceKernelCreateThread(
-	    "VitaMediaDeckMediaScan", local_scan_thread, 0x10000100,
+	    "SSSPlayerMediaScan", local_scan_thread, 0x10000100,
 	    LOCAL_SCAN_THREAD_STACK, 0, 0, NULL);
 	if (g_scan_job.thid < 0) return g_scan_job.thid;
 	int ret = sceKernelStartThread(g_scan_job.thid, sizeof(g_scan_job.self),

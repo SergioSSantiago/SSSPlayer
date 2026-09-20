@@ -1,7 +1,7 @@
 #ifndef SSSPLAYER_APP_PATHS_H
 #define SSSPLAYER_APP_PATHS_H
 
-/* Shared data root for music settings and VideoSSS-derived network/history. */
+/* Shared data root for music settings and video network/history. */
 #define VITAMEDIADECK_DATA_DIR "ux0:data/SSSPlayer"
 #define VITAMEDIADECK_NETWORK_DIR VITAMEDIADECK_DATA_DIR "/network"
 #define VITAMEDIADECK_KNOWN_HOSTS_PATH VITAMEDIADECK_NETWORK_DIR "/known_hosts"

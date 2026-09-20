@@ -50,7 +50,7 @@
 #define THUMB_THREAD_CREATE_PRIORITY  0x10000100
 #define THUMB_THREAD_RUNTIME_PRIORITY 0xB0
 #define THUMB_THREAD_STACK          0x100000
-#define THUMB_CACHE_DIR             "ux0:data/VitaMediaDeck/thumbs"
+#define THUMB_CACHE_DIR             "ux0:data/SSSPlayer/thumbs"
 
 typedef struct ThumbnailRequest {
 	uint64_t key;
@@ -262,7 +262,7 @@ static void cache_store(const ThumbnailRequest *request,
 	                    const uint16_t *pixels) {
 	if (g_thumbnail.stop || !g_thumbnail.enabled || g_thumbnail.active_cancel ||
 	    request->generation != g_thumbnail.generation) return;
-	sceIoMkdir("ux0:data/VitaMediaDeck", 0777);
+	sceIoMkdir("ux0:data/SSSPlayer", 0777);
 	sceIoMkdir(THUMB_CACHE_DIR, 0777);
 	char path[96], temporary[96];
 	cache_paths(request->key, path, temporary);
@@ -1268,7 +1268,7 @@ int vt_video_thumbnail_init(void) {
 	g_thumbnail.thid = -1;
 	g_thumbnail.self = &g_thumbnail;
 	g_thumbnail.thid = sceKernelCreateThread(
-		"VitaMediaDeckThumbnail", thumbnail_worker,
+		"SSSPlayerThumbnail", thumbnail_worker,
 		THUMB_THREAD_CREATE_PRIORITY,
 		THUMB_THREAD_STACK, 0, 0, NULL);
 	if (g_thumbnail.thid < 0) return g_thumbnail.thid;
