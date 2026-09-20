@@ -29,7 +29,7 @@ SSSP00001
 
 **Version**
 ```
-1.1.18
+1.1.20
 ```
 
 **Type / Category** (pick closest to Utility / Media / Application)
@@ -41,18 +41,18 @@ https://github.com/SergioSSantiago/SSSPlayer
 
 **Download URL**
 ```
-https://github.com/SergioSSantiago/SSSPlayer/releases/download/v1.1.18/SSSPlayer-1.1.18.vpk
+https://github.com/SergioSSantiago/SSSPlayer/releases/download/v1.1.20/SSSPlayer-1.1.20.vpk
 ```
 
 **Icon file**
 ```
-/Users/sss/Webs/SSSPlayer/assets/icons/icon0.png
+assets/icons/icon0.png
 ```
 (or upload from the VPK `sce_sys/icon0.png`)
 
 **Short description**
 ```
-Music and video player for PS Vita by SergioSSantiago. VitaWave-style music (EQ, visualizer, playlists, themes), VitaMediaDeck-class H.264 video with precise seek, network streaming (SMB, SFTP, WebDAV, Jellyfin), plus YouTube search/play/download and in-app auto-update.
+Music and video player for PS Vita by SergioSSantiago. VitaWave-style music (EQ, visualizer, playlists, themes), VitaMediaDeck-class H.264 video with precise seek, network streaming (SMB, SFTP, WebDAV, Jellyfin), plus YouTube search/play/download and in-app update check.
 ```
 
 **Long description**
@@ -77,7 +77,7 @@ YouTube:
 - Destination folder picker; in-app delete (Square); download progress
 
 Extras:
-- In-app check for updates and VPK install
+- In-app check for updates (GitHub Releases)
 - Local file browser with delete
 
 Install:
@@ -91,6 +91,7 @@ Credits: built by SergioSSantiago. Thanks to VitaWave and VitaMediaDeck — SSSP
 TITLEID: SSSP00001
 Data: ux0:data/SSSPlayer/
 License: GPL-3.0-only
+Version: 1.1.20
 ```
 
 **Screenshots** (upload on-device captures if the form asks)
@@ -105,4 +106,4 @@ License: GPL-3.0-only
 ## VitaAlive
 
 Use the **same** values as above. Keep TITLEID `SSSP00001` and the GitHub release URL identical.
-(`vitaalive.com` is currently offline; paste the same listing when the mirror returns.)
+(`vitaalive.com` has been offline; paste the same listing when the mirror returns.)

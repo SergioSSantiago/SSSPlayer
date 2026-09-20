@@ -1,17 +1,17 @@
 # SSSPlayer
 
-**Latest release: [v1.1.18](https://github.com/SergioSSantiago/SSSPlayer/releases/tag/v1.1.18)**  
-Download: `SSSPlayer-1.1.18.vpk`
+**Latest release: [v1.1.20](https://github.com/SergioSSantiago/SSSPlayer/releases/tag/v1.1.20)**  
+Download: `SSSPlayer-1.1.20.vpk`
 
 Music + video media player for PlayStation Vita by **[SergioSSantiago](https://github.com/SergioSSantiago)**.
 
-SSSPlayer brings together a polished music experience (equalizer, visualizer, playlists, themes — Terminus by default) with a video player that lets you **seek to the exact moment** you want, plus local folders and network sources (SMB / SFTP / WebDAV / Jellyfin).
+SSSPlayer brings together a polished music experience (equalizer, visualizer, playlists, themes — Terminus by default) with a video player that lets you seek to the exact moment you want, plus local folders and network sources (SMB / SFTP / WebDAV / Jellyfin).
 
 | | |
 |---|---|
 | **TITLEID** | `SSSP00001` |
 | **Developer** | [SergioSSantiago](https://github.com/SergioSSantiago) |
-| **Version** | 1.1.18 |
+| **Version** | 1.1.20 |
 | **Data** | `ux0:data/SSSPlayer/` |
 | **License** | GPL-3.0-only |
 
@@ -52,26 +52,32 @@ After install, put music under `ux0:/music` (or `uma0:/music`) and videos under 
 Ready for submission. See [`docs/STORE.md`](docs/STORE.md) and paste-ready [`docs/store/SUBMIT_PASTE.md`](docs/store/SUBMIT_PASTE.md).
 
 - **Unique TITLEID:** `SSSP00001` (does not clash with VitaWave or VitaMediaDeck/VideoSSS)
-- **Latest VPK:** [SSSPlayer-1.1.18.vpk](https://github.com/SergioSSantiago/SSSPlayer/releases/download/v1.1.18/SSSPlayer-1.1.18.vpk)
+- **Latest VPK:** [SSSPlayer-1.1.20.vpk](https://github.com/SergioSSantiago/SSSPlayer/releases/download/v1.1.20/SSSPlayer-1.1.20.vpk)
 - **Icon:** `assets/icons/icon0.png` (128×128 indexed PNG)
 - **Source:** https://github.com/SergioSSantiago/SSSPlayer
 - **NeoVitaDB:** [PR #11 (Catalog-Test)](https://github.com/robin994/NeoVitaDB-Catalog-Test/pull/11) — id `1941`
 
-Submit on [VitaDB](https://www.rinnegatamante.eu/vitadb/#/submit) (and VitaAlive with the same metadata when online).
+Submit on [VitaDB](https://www.rinnegatamante.eu/vitadb/#/submit) (and VitaAlive with the same metadata when online). VitaDB requires your logged-in account (no public API).
 
 ## Building from source
 
-Requires [VitaSDK](https://vitasdk.org) and pinned deps under `build/deps` (FFmpeg h264_vita, libssh2, jansson, quirc, stb, curl/mbedtls).
+Requires [VitaSDK](https://vitasdk.org) and pinned deps under `build/deps` (FFmpeg h264_vita, libssh2, jansson, quirc, stb, curl/mbedtls). Prefer `scripts/quick-vpk.sh` for incremental builds (see `docs/BUILD_FAST.md`).
 
 ```bash
 git clone https://github.com/SergioSSantiago/SSSPlayer.git
 cd SSSPlayer
+./scripts/quick-vpk.sh
+```
+
+Or classic CMake:
+
+```bash
 mkdir build && cd build
 cmake .. -DCMAKE_TOOLCHAIN_FILE=$VITASDK/share/vita.toolchain.cmake -DVITASDK=$VITASDK
 make -j$(sysctl -n hw.ncpu)
 ```
 
-The packaged file is `SSSPlayer-1.1.18.vpk` (version embedded in the filename).
+The packaged file is `SSSPlayer-1.1.20.vpk` (version embedded in the filename).
 
 ## License
 
