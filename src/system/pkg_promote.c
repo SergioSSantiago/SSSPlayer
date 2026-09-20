@@ -10,6 +10,7 @@
 #include <mbedtls/sha1.h>
 #include <psp2/io/fcntl.h>
 #include <psp2/io/stat.h>
+#include <psp2/kernel/processmgr.h>
 #include <psp2/promoterutil.h>
 #include <psp2/sysmodule.h>
 
@@ -17,6 +18,9 @@
 
 #define ntohl __builtin_bswap32
 #define SFO_MAGIC 0x46535000U
+/* Self-update of the running TITLEID can stall forever on sync promote. */
+#define PROMOTE_TIMEOUT_MS 45000
+#define PROMOTE_POLL_MS 200
 
 typedef struct {
 	uint32_t magic;
@@ -180,6 +184,32 @@ static int make_head_bin(const char *path) {
 	return res;
 }
 
+static int promote_async_with_timeout(const char *path) {
+	int ret;
+	int state = 1;
+	int result = 0;
+	int waited = 0;
+
+	/* sync=0: do not block the worker forever on self-update. */
+	ret = scePromoterUtilityPromotePkgWithRif(path, 0);
+	if (ret < 0)
+		ret = scePromoterUtilityPromotePkg(path, 0);
+	if (ret < 0) return ret;
+
+	while (waited < PROMOTE_TIMEOUT_MS) {
+		ret = scePromoterUtilityGetState(&state);
+		if (ret < 0) return ret;
+		if (!state) {
+			ret = scePromoterUtilityGetResult(&result);
+			return ret < 0 ? ret : result;
+		}
+		sceKernelDelayThread(PROMOTE_POLL_MS * 1000);
+		waited += PROMOTE_POLL_MS;
+	}
+	/* Timed out — leave promoter; caller falls back to VitaShell. */
+	return -3;
+}
+
 int sss_pkg_promote(const char *path) {
 	char eboot[512];
 	char sfo[512];
@@ -197,7 +227,6 @@ int sss_pkg_promote(const char *path) {
 	ret = make_head_bin(path);
 	if (ret < 0) return ret;
 
-	/* Promoter is happiest with a trailing slash (VitaShell extract target). */
 	snprintf(promote_path, sizeof(promote_path), "%s", path);
 	n = strlen(promote_path);
 	if (n + 1 < sizeof(promote_path) && promote_path[n - 1] != '/') {
@@ -219,11 +248,9 @@ int sss_pkg_promote(const char *path) {
 		return ret;
 	}
 
-	ret = scePromoterUtilityPromotePkgWithRif(promote_path, 1);
-	if (ret < 0)
-		ret = scePromoterUtilityPromotePkgWithRif(path, 1);
-	if (ret < 0)
-		ret = scePromoterUtilityPromotePkg(path, 1);
+	ret = promote_async_with_timeout(promote_path);
+	if (ret < 0 && ret != -3)
+		ret = promote_async_with_timeout(path);
 
 	scePromoterUtilityExit();
 	sceSysmoduleUnloadModuleInternal(SCE_SYSMODULE_INTERNAL_PROMOTER_UTIL);

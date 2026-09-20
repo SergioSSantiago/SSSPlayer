@@ -238,10 +238,44 @@ static int copy_file(const char *src, const char *dst) {
 	return n < 0 ? n : 0;
 }
 
+typedef struct {
+	char vpk_path[512];
+	volatile long stage; /* 1=extract 2=promote */
+	volatile int cancel;
+	int result;
+} InstallJob;
+
+static int install_job_run(void *opaque) {
+	InstallJob *job = opaque;
+	char eboot_check[320];
+	SceIoStat st;
+
+	if (!job) return -1;
+	job->stage = 1;
+	sceIoMkdir("ux0:data", 0777);
+	remove_tree(UPDATE_PKG_DIR);
+	if (job->cancel) return -1;
+	if (sss_zip_extract(job->vpk_path, UPDATE_PKG_DIR) < 0) {
+		job->result = -10;
+		return -1;
+	}
+	snprintf(eboot_check, sizeof(eboot_check), "%s/eboot.bin", UPDATE_PKG_DIR);
+	memset(&st, 0, sizeof(st));
+	if (sceIoGetstat(eboot_check, &st) < 0) {
+		job->result = -11;
+		return -1;
+	}
+	if (job->cancel) return -1;
+	job->stage = 2;
+	job->result = sss_pkg_promote(UPDATE_PKG_DIR);
+	remove_tree(UPDATE_PKG_DIR);
+	return job->result < 0 ? -1 : 0;
+}
+
 static int install_update(const UpdateInfo *info) {
 	VtDownloadJob job;
+	InstallJob install;
 	int result;
-	char eboot_check[320];
 
 	sceIoMkdir("ux0:data/SSSPlayer", 0777);
 	sceIoMkdir(UPDATE_DIR, 0777);
@@ -261,37 +295,25 @@ static int install_update(const UpdateInfo *info) {
 		return -1;
 	}
 
-	ui_message_show(vt_i18n_str(VT_STR_UPDATE_INSTALLING), info->tag, 1200);
-	sceIoMkdir("ux0:data", 0777);
-	remove_tree(UPDATE_PKG_DIR);
-	if (sss_zip_extract(job.destination, UPDATE_PKG_DIR) < 0) {
-		copy_file(job.destination, UPDATE_VPK_FALLBACK);
-		ui_message_show(vt_i18n_str(VT_STR_UPDATE_FAILED_TITLE),
-		                vt_i18n_str(VT_STR_UPDATE_EXTRACT_FAILED), 3600);
-		ui_message_show(vt_i18n_str(VT_STR_UPDATE_MANUAL_TITLE),
-		                vt_i18n_str(VT_STR_UPDATE_MANUAL_DETAIL), 4500);
-		return -1;
-	}
-	snprintf(eboot_check, sizeof(eboot_check), "%s/eboot.bin", UPDATE_PKG_DIR);
-	{
-		SceIoStat st;
-		memset(&st, 0, sizeof(st));
-		if (sceIoGetstat(eboot_check, &st) < 0) {
-			copy_file(job.destination, UPDATE_VPK_FALLBACK);
-			remove_tree(UPDATE_PKG_DIR);
-			ui_message_show(vt_i18n_str(VT_STR_UPDATE_FAILED_TITLE),
-			                vt_i18n_str(VT_STR_UPDATE_EXTRACT_FAILED), 3600);
-			ui_message_show(vt_i18n_str(VT_STR_UPDATE_MANUAL_TITLE),
-			                vt_i18n_str(VT_STR_UPDATE_MANUAL_DETAIL), 4500);
-			return -1;
-		}
-	}
-	result = sss_pkg_promote(UPDATE_PKG_DIR);
-	remove_tree(UPDATE_PKG_DIR);
-	if (result < 0) {
+	/* Keep a VitaShell-ready copy before promote (self-update can hang). */
+	copy_file(job.destination, UPDATE_VPK_FALLBACK);
+
+	memset(&install, 0, sizeof(install));
+	snprintf(install.vpk_path, sizeof(install.vpk_path), "%s", job.destination);
+	install.stage = 1;
+	result = ui_loading_run(vt_i18n_str(VT_STR_UPDATE_INSTALLING), install_job_run,
+	                       &install, &install.cancel, &install.stage, NULL);
+	if (result != 0 || install.result < 0) {
 		char detail[96];
-		copy_file(job.destination, UPDATE_VPK_FALLBACK);
-		snprintf(detail, sizeof(detail), "0x%08X", (unsigned)result);
+		if (install.result == -3)
+			snprintf(detail, sizeof(detail), "%s",
+			         vt_i18n_str(VT_STR_UPDATE_PROMOTE_TIMEOUT));
+		else if (install.result == -10 || install.result == -11)
+			snprintf(detail, sizeof(detail), "%s",
+			         vt_i18n_str(VT_STR_UPDATE_EXTRACT_FAILED));
+		else
+			snprintf(detail, sizeof(detail), "0x%08X",
+			         (unsigned)install.result);
 		ui_message_show(vt_i18n_str(VT_STR_UPDATE_FAILED_TITLE), detail, 3200);
 		ui_message_show(vt_i18n_str(VT_STR_UPDATE_MANUAL_TITLE),
 		                vt_i18n_str(VT_STR_UPDATE_MANUAL_DETAIL), 5000);

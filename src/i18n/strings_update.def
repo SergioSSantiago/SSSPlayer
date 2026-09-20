@@ -16,3 +16,4 @@ VT_STR(UPDATE_OFFLINE_TITLE, "Aggiornamento non disponibile", "Update unavailabl
 VT_STR(UPDATE_OFFLINE_DETAIL, "Serve Wi-Fi o il server non risponde.", "Need Wi-Fi or the server did not respond.")
 VT_STR(UPDATE_MANUAL_TITLE, "Installa con VitaShell", "Install with VitaShell")
 VT_STR(UPDATE_MANUAL_DETAIL, "Apri ux0:SSSPlayer-update.vpk in VitaShell.", "Open ux0:SSSPlayer-update.vpk in VitaShell.")
+VT_STR(UPDATE_PROMOTE_TIMEOUT, "Installazione in timeout", "Install timed out")
