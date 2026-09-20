@@ -1,7 +1,7 @@
 # SSSPlayer
 
-**Latest release: [v1.1.3](https://github.com/SergioSSantiago/SSSPlayer/releases/tag/v1.1.3)**  
-Download: `SSSPlayer-1.1.3.vpk`
+**Latest release: [v1.1.4](https://github.com/SergioSSantiago/SSSPlayer/releases/tag/v1.1.4)**  
+Download: `SSSPlayer-1.1.4.vpk`
 
 Music + video media player for PlayStation Vita by **[SergioSSantiago](https://github.com/SergioSSantiago)**.
 
@@ -11,7 +11,7 @@ SSSPlayer brings together a polished music experience (equalizer, visualizer, pl
 |---|---|
 | **TITLEID** | `SSSP00001` |
 | **Developer** | [SergioSSantiago](https://github.com/SergioSSantiago) |
-| **Version** | 1.1.3 |
+| **Version** | 1.1.4 |
 | **Data** | `ux0:data/SSSPlayer/` |
 | **License** | GPL-3.0-only |
 
@@ -36,6 +36,7 @@ This app reuses and combines parts of both codebases into one media player. All 
 - Open files from `ux0:/video`, `uma0:/video`, `ux0:/movies`, `uma0:/movies`, or any folder in the browser
 - Hardware H.264 decode with precise seek / scrub
 - Subtitles, audio tracks, Video Library + Network Videos
+- **YouTube**: search, stream playback, download video or audio (MP3/M4A) with folder picker
 
 ## Install
 

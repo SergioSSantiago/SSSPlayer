@@ -9,12 +9,12 @@ Use this sheet when submitting **SSSPlayer** to [VitaDB](https://www.rinnegatama
 | **Name** | SSSPlayer |
 | **Author / Developer** | SergioSSantiago |
 | **TITLEID** | `SSSP00001` |
-| **Version** | 1.1.3 |
+| **Version** | 1.1.4 |
 | **Category** | Utility / Media player |
 | **License** | GPL-3.0-only |
 | **Source** | https://github.com/SergioSSantiago/SSSPlayer |
 | **Download** | https://github.com/SergioSSantiago/SSSPlayer/releases/latest |
-| **Direct VPK** | https://github.com/SergioSSantiago/SSSPlayer/releases/download/v1.1.3/SSSPlayer-1.1.3.vpk |
+| **Direct VPK** | https://github.com/SergioSSantiago/SSSPlayer/releases/download/v1.1.4/SSSPlayer-1.1.4.vpk |
 | **Icon** | `assets/icons/icon0.png` (128×128) |
 | **Data dir** | `ux0:data/SSSPlayer/` |
 

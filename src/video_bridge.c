@@ -27,11 +27,14 @@
 #include "ui/local_media_screen.h"
 #include "ui/loading_screen.h"
 #include "ui/network_sources_screen.h"
+#include "ui/yt_screen.h"
 #include "ui/runtime.h"
 #include "ui/sections_sidebar.h"
 #include "ui/touch.h"
 
 #include <vita_https.h>
+
+#include "network/http_url_stream.h"
 
 static int g_video_ready;
 static int g_network_ready;
@@ -269,5 +272,68 @@ int sss_video_browse_network(void)
 			ui_message_show(vt_i18n_str(VT_STR_MAIN_STREAMING_FAILED),
 			                vt_i18n_str(VT_STR_MAIN_STREAMING_DETAIL), 3200);
 		memset(&selection.credential, 0, sizeof(selection.credential));
+	}
+}
+
+static int run_http_url_video(const UiYtSelection *selection)
+{
+	HttpUrlStreamFactory remote;
+	VtHwPlayerScreenSource source;
+	char id[16];
+	uint64_t last_position;
+	uint64_t last_duration = 0;
+	int last_audio = 0, last_subtitle = 0;
+	int ret;
+
+	if (!selection || !selection->video_url[0]) return -1;
+	if (http_url_stream_factory_init(&remote, selection->video_url) < 0)
+		return -1;
+
+	yield_music_audio();
+	vt_video_thumbnail_prepare_playback();
+	vt_background_playback_stop();
+
+	/* Stable history key from video id when available. */
+	if (selection->video_id[0])
+		snprintf(id, sizeof(id), "%.15s", selection->video_id);
+	else
+		vt_playback_history_local_id(selection->video_url, id);
+
+	memset(&source, 0, sizeof(source));
+	source.stream = remote.factory;
+	source.title = selection->title;
+	source.location = selection->author[0] ? selection->author : "YouTube";
+	source.history_id = id;
+	source.authenticated_remote = 0;
+	source.allow_minimize = 0;
+	last_position = vt_playback_history_position(id, 0);
+	source.start_position_ms = last_position;
+	ret = vt_hw_player_screen_run(&source, &last_position, &last_duration,
+	                              &last_audio, &last_subtitle);
+	http_url_stream_factory_free(&remote);
+	log_save(VITAMEDIADECK_SESSION_LOG_PATH);
+	vt_playback_history_update(id, last_position, last_duration);
+	restore_music_audio();
+	ui_touch_reset();
+	return ret;
+}
+
+int sss_video_browse_youtube(void)
+{
+	if (ensure_video_runtime() < 0) return -1;
+	if (!g_network_ready || !vita_https_is_connected()) {
+		ui_message_show(vt_i18n_str(VT_STR_MAIN_NETWORK_UNAVAILABLE),
+		                "YouTube needs Wi-Fi", 2600);
+		return -1;
+	}
+
+	for (;;) {
+		UiYtSelection selection;
+		int action = ui_yt_screen(&selection);
+		if (action != UI_YT_ACTION_PLAY) return 0;
+		if (run_http_url_video(&selection) < 0)
+			ui_message_show(vt_i18n_str(VT_STR_MAIN_STREAMING_FAILED),
+			                "Could not play the resolved stream", 3200);
+		memset(&selection, 0, sizeof(selection));
 	}
 }

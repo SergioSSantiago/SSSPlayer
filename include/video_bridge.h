@@ -19,6 +19,9 @@ int sss_video_browse_library(void);
 /* Open the network sources browser (SMB/SFTP/WebDAV/Jellyfin). */
 int sss_video_browse_network(void);
 
+/* Open YouTube search / play / download. */
+int sss_video_browse_youtube(void);
+
 #ifdef __cplusplus
 }
 #endif

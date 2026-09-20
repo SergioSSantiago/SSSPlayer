@@ -11,6 +11,7 @@ typedef struct {
 	VtNetworkCredential credential;
 	char remote_path[VT_NETWORK_PATH_MAX];
 	char url[2048];
+	char preferred_name[128];
 	char destination_directory[VT_NETWORK_PATH_MAX];
 	char destination[VT_NETWORK_PATH_MAX];
 	char detail[192];
@@ -27,6 +28,7 @@ void vt_download_job_init_network(VtDownloadJob *job,
 	                              const char *path);
 void vt_download_job_init_url(VtDownloadJob *job, const char *url);
 void vt_download_job_set_destination(VtDownloadJob *job, const char *directory);
+void vt_download_job_set_filename(VtDownloadJob *job, const char *filename);
 
 /* Suitable for ui_loading_run(). Returns zero only when destination contains
  * a fully flushed file. Direct URLs support explicit HTTP and HTTPS. */

@@ -51,7 +51,10 @@ static void filename_from_value(const char *value, char *out, size_t out_size) {
 static int make_destination(VtDownloadJob *job, const char *value,
 	                        char *part, size_t part_size) {
 	char filename[128];
-	filename_from_value(value, filename, sizeof(filename));
+	if (job->preferred_name[0])
+		snprintf(filename, sizeof(filename), "%s", job->preferred_name);
+	else
+		filename_from_value(value, filename, sizeof(filename));
 	const char *directory = job->destination_directory[0]
 	                      ? job->destination_directory : DOWNLOAD_ROOT;
 	sceIoMkdir("ux0:download", 0777);
@@ -200,6 +203,23 @@ void vt_download_job_set_destination(VtDownloadJob *job, const char *directory) 
 	if (directory && directory[0])
 		snprintf(job->destination_directory, sizeof(job->destination_directory), "%s",
 		         directory);
+}
+
+void vt_download_job_set_filename(VtDownloadJob *job, const char *filename) {
+	size_t n = 0;
+	if (!job) return;
+	job->preferred_name[0] = '\0';
+	if (!filename || !filename[0]) return;
+	while (filename[n] && n + 1 < sizeof(job->preferred_name)) {
+		unsigned char c = (unsigned char)filename[n];
+		job->preferred_name[n] =
+		    (isalnum(c) || c == '.' || c == '-' || c == '_') ? (char)c : '_';
+		n++;
+	}
+	job->preferred_name[n] = '\0';
+	if (!job->preferred_name[0] || !strcmp(job->preferred_name, ".") ||
+	    !strcmp(job->preferred_name, ".."))
+		snprintf(job->preferred_name, sizeof(job->preferred_name), "download");
 }
 
 int vt_download_run(void *opaque) {

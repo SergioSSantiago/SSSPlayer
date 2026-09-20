@@ -117,7 +117,7 @@ include("${VITASDK}/share/vita.cmake" REQUIRED)
 set(VITA_APP_NAME "SSSPlayer")
 set(VITA_TITLEID  "SSSP00001")
 set(VITA_VERSION  "01.01")
-set(SSSPLAYER_VERSION_LABEL "1.1.3")
+set(SSSPLAYER_VERSION_LABEL "1.1.4")
 set(SSSPLAYER_VPK_NAME "SSSPlayer-${SSSPLAYER_VERSION_LABEL}.vpk")
 
 set(VITA_MKSFOEX_FLAGS
@@ -207,6 +207,8 @@ set(SOURCES
   src/network/smb_source.c
   src/network/jellyfin_source.c
   src/network/download_manager.c
+  src/network/yt_client.c
+  src/network/http_url_stream.c
   ## Media / decoder UI
   src/media/background_playback.c
   src/media/audio_volume.c
@@ -238,6 +240,8 @@ set(SOURCES
   src/ui/log_viewer.c
   src/ui/text_reader.c
   src/ui/network_sources_screen.c
+  src/ui/destination_picker.c
+  src/ui/yt_screen.c
   src/ui/qr_scanner.c
 )
 

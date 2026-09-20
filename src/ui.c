@@ -648,7 +648,7 @@ void ui_handle_input(UIState *ui,
 
     /* ── SETTINGS ─────────────────────────────────────────────────────── */
     case UI_SCREEN_SETTINGS: {
-        const int NUM_SETTINGS = 8;
+        const int NUM_SETTINGS = 9;
         if (nav_pressed & SCE_CTRL_UP) {
             if (ui->settings.settings_selected > 0)
                 ui->settings.settings_selected--;
@@ -696,6 +696,9 @@ void ui_handle_input(UIState *ui,
                     sss_video_browse_network();
                     break;
                 case 7:
+                    sss_video_browse_youtube();
+                    break;
+                case 8:
                     ((UIState *)ui)->request_exit = true;
                     break;
             }
@@ -2219,9 +2222,10 @@ void ui_draw_settings(const UIState *ui)
         { "Theme" },
         { "Video Library" },
         { "Network Videos" },
+        { "YouTube" },
         { "Exit SSSPlayer" },
     };
-    int num_rows = 8;
+    int num_rows = 9;
 
     int sy = BAR_HEIGHT + 10;
     noto_draw_text(12, sy + 28,
@@ -2271,7 +2275,8 @@ void ui_draw_settings(const UIState *ui)
                 break;
             case 5:
             case 6:
-            case 7: val_str[0] = '\0'; break;
+            case 7:
+            case 8: val_str[0] = '\0'; break;
             default: val_str[0] = '\0'; break;
         }
         {
