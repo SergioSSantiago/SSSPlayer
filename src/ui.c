@@ -1348,9 +1348,10 @@ static void draw_header(const UIState *ui)
     /* Background bar */
     vita2d_draw_rectangle(0, 0, SCREEN_WIDTH, BAR_HEIGHT, COLOR_ACCENT);
 
-    /* App name */
+    /* App name + developer credit */
     noto_draw_text(12, 28,
-                         COLOR_TEXT, ui->font_medium.size, "SSSPlayer");
+                         COLOR_TEXT, ui->font_medium.size,
+                         "SSSPlayer by SergioSSantiago");
 
     /* Current time */
     SceDateTime now_dt;

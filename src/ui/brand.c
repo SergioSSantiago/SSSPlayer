@@ -27,7 +27,7 @@
 #define HEADER_ICON_X 18
 #define HEADER_ICON_Y ((UI_BRAND_HEADER_HEIGHT - HEADER_ICON_SIZE) / 2)
 #define HEADER_NAME_X (HEADER_ICON_X + HEADER_ICON_SIZE + 14)
-#define HEADER_WORDMARK "SSSPlayer"
+#define HEADER_WORDMARK "SSSPlayer by SergioSSantiago"
 
 /* --- Header layout -------------------------------------------------------
  *
