@@ -320,7 +320,6 @@ void ui_handle_input(UIState *ui,
                 } else {
                     /* Play the selected file */
                     if (e->type == FILE_TYPE_VIDEO) {
-                        if (engine) audio_engine_stop(engine);
                         sss_video_play_local(e->path, e->name);
                     } else if (engine) {
                         if (audio_engine_play(engine, e->path) == 0) {
@@ -624,11 +623,9 @@ void ui_handle_input(UIState *ui,
                     }
                     break;
                 case 5:
-                    if (engine) audio_engine_stop(engine);
                     sss_video_browse_library();
                     break;
                 case 6:
-                    if (engine) audio_engine_stop(engine);
                     sss_video_browse_network();
                     break;
                 case 7:

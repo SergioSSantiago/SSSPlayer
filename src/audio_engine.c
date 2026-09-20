@@ -142,6 +142,7 @@ static inline int ring_next(int idx)
  */
 static void port_set_rate(AudioEngine *e, int new_rate)
 {
+    if (!e || e->port < 0 || e->output_suspended) return;
     if (new_rate <= 0 || new_rate == e->port_sample_rate) return;
     int old_rate = e->port_sample_rate;
 
@@ -401,10 +402,10 @@ static int audio_thread_func(SceSize args, void *argp)
         sceKernelUnlockMutex(e->mutex, 1);
 
         /* ── Send to SceAudioOut ── */
-        /* If the port was killed by a suspend/resume cycle, output returns
-         * a negative error.  Delay briefly so we don't spin at full CPU.
-         * audio_engine_resume() (called by main loop on APP_RESUME) will
-         * re-acquire the BGM port and reopen the port if needed.          */
+        if (e->port < 0 || e->output_suspended) {
+            sceKernelDelayThread(5000);
+            continue;
+        }
         sceAudioOutOutput(e->port, out_buf);
     }
 
@@ -577,6 +578,11 @@ int audio_engine_play(AudioEngine *e, const char *filepath)
 {
     if (!e || !filepath) return -1;
 
+    if (e->output_suspended || e->port < 0) {
+        if (audio_engine_resume_output(e) < 0)
+            return -1;
+    }
+
     /* Stop any current playback (state=STOPPED, decoder=NULL) */
     audio_engine_stop(e);
 
@@ -669,6 +675,61 @@ void audio_engine_stop(AudioEngine *e)
     sceKernelUnlockMutex(e->mutex, 1);
 }
 
+void audio_engine_suspend_output(AudioEngine *e)
+{
+    if (!e || e->output_suspended) return;
+
+    audio_engine_stop(e);
+    e->output_suspended = 1;
+
+    /* Let the audio thread leave any in-flight sceAudioOutOutput. */
+    sceKernelDelayThread(50000);
+
+    sceKernelLockMutex(e->mutex, 1, NULL);
+    if (e->port >= 0) {
+        sceAudioOutReleasePort(e->port);
+        e->port = -1;
+    }
+    sceKernelUnlockMutex(e->mutex, 1);
+
+    sceAppMgrReleaseBgmPort();
+}
+
+int audio_engine_resume_output(AudioEngine *e)
+{
+    if (!e) return -1;
+    if (!e->output_suspended && e->port >= 0) return 0;
+
+    acquire_bgm_port();
+
+    if (e->port_sample_rate <= 0)
+        e->port_sample_rate = AUDIO_PORT_RATE;
+
+    sceKernelLockMutex(e->mutex, 1, NULL);
+    if (e->port < 0) {
+        e->port = sceAudioOutOpenPort(
+            SCE_AUDIO_OUT_PORT_TYPE_BGM,
+            GRANULE_SIZE,
+            e->port_sample_rate,
+            SCE_AUDIO_OUT_PARAM_FORMAT_S16_STEREO);
+        if (e->port >= 0) {
+            int vols[2] = { e->volume, e->volume };
+            sceAudioOutSetVolume(e->port,
+                SCE_AUDIO_VOLUME_FLAG_L_CH | SCE_AUDIO_VOLUME_FLAG_R_CH,
+                vols);
+        }
+    }
+    int port = e->port;
+    sceKernelUnlockMutex(e->mutex, 1);
+
+    if (port < 0) {
+        e->output_suspended = 1;
+        return port;
+    }
+    e->output_suspended = 0;
+    return 0;
+}
+
 /* ── audio_engine_next ───────────────────────────────────────────────────── */
 
 int audio_engine_next(AudioEngine *e, Playlist *pl)
@@ -736,6 +797,8 @@ void audio_engine_set_volume(AudioEngine *e, int volume)
     if (volume < 0)          volume = 0;
     if (volume > MAX_VOLUME) volume = MAX_VOLUME;
     e->volume = volume;
+
+    if (e->port < 0 || e->output_suspended) return;
 
     int vols[2] = { volume, volume };
     sceAudioOutSetVolume(e->port,

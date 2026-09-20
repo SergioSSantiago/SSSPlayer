@@ -10,7 +10,9 @@
 #include <psp2/kernel/processmgr.h>
 
 #include "app_paths.h"
+#include "audio_engine.h"
 #include "common/text_log.h"
+#include "globals.h"
 #include "history/playback_history.h"
 #include "i18n/i18n.h"
 #include "media/background_playback.h"
@@ -33,6 +35,18 @@
 
 static int g_video_ready;
 static int g_network_ready;
+
+static void yield_music_audio(void)
+{
+	AudioEngine *engine = get_audio_engine();
+	if (engine) audio_engine_suspend_output(engine);
+}
+
+static void restore_music_audio(void)
+{
+	AudioEngine *engine = get_audio_engine();
+	if (engine) audio_engine_resume_output(engine);
+}
 
 static void str_tolower_copy(char *dst, const char *src, size_t n)
 {
@@ -107,7 +121,12 @@ static int play_local_video_path(const char *path, const char *title)
 	if (!path || !path[0]) return -1;
 	if (ensure_video_runtime() < 0) return -1;
 
+	/* Music shell keeps the Vita BGM port open for the whole session.
+	 * The VideoSSS decoder stack needs that same BGM port for AAC out. */
+	yield_music_audio();
+
 	vt_video_thumbnail_prepare_playback();
+	vt_background_playback_stop();
 	media_id(path, id);
 	vt_decoder_file_stream_factory(path, &factory);
 	memset(&source, 0, sizeof(source));
@@ -123,6 +142,14 @@ static int play_local_video_path(const char *path, const char *title)
 	                              &last_audio, &last_subtitle);
 	log_save(VITAMEDIADECK_SESSION_LOG_PATH);
 	vt_playback_history_update(id, last_position, last_duration);
+
+	restore_music_audio();
+	ui_touch_reset();
+
+	if (ret < 0) {
+		ui_message_show(vt_i18n_str(VT_STR_MAIN_UNSUPPORTED_MEDIA),
+		                vt_i18n_str(VT_STR_MAIN_UNSUPPORTED_DETAIL), 3200);
+	}
 	return ret;
 }
 
@@ -142,11 +169,17 @@ static int run_remote_video(const UiNetworkSelection *selection)
 	int ret;
 
 	if (!selection) return -1;
+
+	yield_music_audio();
 	vt_video_thumbnail_prepare_playback();
+	vt_background_playback_stop();
 	ret = vt_network_stream_factory_init(&remote, &selection->source,
 	                                     &selection->credential,
 	                                     selection->path);
-	if (ret < 0) return ret;
+	if (ret < 0) {
+		restore_music_audio();
+		return ret;
+	}
 	remote_media_id(selection, id);
 	memset(&source, 0, sizeof(source));
 	source.stream = remote.factory;
@@ -162,6 +195,8 @@ static int run_remote_video(const UiNetworkSelection *selection)
 	memset(&remote.credential, 0, sizeof(remote.credential));
 	log_save(VITAMEDIADECK_SESSION_LOG_PATH);
 	vt_playback_history_update(id, last_position, last_duration);
+	restore_music_audio();
+	ui_touch_reset();
 	return ret;
 }
 

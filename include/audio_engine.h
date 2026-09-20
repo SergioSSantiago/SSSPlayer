@@ -39,6 +39,8 @@ typedef struct {
     /* SceAudio port handle and its current sample rate */
     int port;
     int port_sample_rate;
+    /* 1 while the BGM port is yielded to the video stack */
+    volatile int output_suspended;
 
     /* Background decode/output thread */
     SceUID thread;
@@ -131,6 +133,17 @@ void audio_engine_pause(AudioEngine *engine);
  * Stop playback and close the current decoder.
  */
 void audio_engine_stop(AudioEngine *engine);
+
+/**
+ * Release the BGM audio port so the video decoder can open its own.
+ * Call before fullscreen video; pair with audio_engine_resume_output().
+ */
+void audio_engine_suspend_output(AudioEngine *engine);
+
+/**
+ * Re-acquire the BGM audio port after video playback ends.
+ */
+int audio_engine_resume_output(AudioEngine *engine);
 
 /**
  * Advance to the next track in the linked playlist.
