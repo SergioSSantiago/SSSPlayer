@@ -1,6 +1,7 @@
 #include "vita_https.h"
 
 #include <errno.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -92,19 +93,27 @@ static size_t fixed_write(char *data, size_t size, size_t count, void *opaque) {
 	return bytes;
 }
 
+typedef struct {
+	volatile int *cancel;
+	volatile long *progress_total;
+} ProgressBridge;
+
 static int progress_cancel(void *opaque, curl_off_t down_total,
 	                       curl_off_t down_now, curl_off_t up_total,
 	                       curl_off_t up_now) {
-	(void)down_total;
 	(void)down_now;
 	(void)up_total;
 	(void)up_now;
-	volatile int *cancel = (volatile int *)opaque;
-	return cancel && *cancel;
+	ProgressBridge *bridge = (ProgressBridge *)opaque;
+	if (bridge && bridge->progress_total && down_total > 0) {
+		long total = down_total > LONG_MAX ? LONG_MAX : (long)down_total;
+		*bridge->progress_total = total;
+	}
+	return bridge && bridge->cancel && *bridge->cancel;
 }
 
 static void apply_common(CURL *curl, const VitaHttpsClient *client,
-	                     volatile int *cancel) {
+	                     ProgressBridge *progress) {
 	struct curl_blob ca = {
 		.data = (void *)ca_bundle_pem,
 		.len = ca_bundle_pem_len,
@@ -136,10 +145,10 @@ static void apply_common(CURL *curl, const VitaHttpsClient *client,
 		curl_easy_setopt(curl, CURLOPT_USERNAME, client->username);
 		curl_easy_setopt(curl, CURLOPT_PASSWORD, client->password);
 	}
-	if (cancel) {
+	if (progress && (progress->cancel || progress->progress_total)) {
 		curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
 		curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, progress_cancel);
-		curl_easy_setopt(curl, CURLOPT_XFERINFODATA, (void *)cancel);
+		curl_easy_setopt(curl, CURLOPT_XFERINFODATA, (void *)progress);
 	}
 }
 
@@ -295,7 +304,11 @@ int vita_https_perform(VitaHttpsClient *client,
 		return VITA_HTTPS_ERROR_INVALID_ARGUMENT;
 	CURL *curl = curl_easy_init();
 	if (!curl) return VITA_HTTPS_ERROR_OUT_OF_MEMORY;
-	apply_common(curl, client, request->cancel_flag);
+	ProgressBridge progress = {
+		request->cancel_flag,
+		request->progress_total
+	};
+	apply_common(curl, client, &progress);
 	curl_easy_setopt(curl, CURLOPT_URL, request->url);
 	const char *method = request->method ? request->method : "GET";
 	if (strcmp(method, "HEAD") == 0) {
@@ -371,7 +384,8 @@ static int range_fetch(RangeStream *stream, uint64_t start) {
 	         (unsigned long long)start, (unsigned long long)end);
 	CURL *curl = curl_easy_init();
 	if (!curl) return VITA_HTTPS_ERROR_OUT_OF_MEMORY;
-	apply_common(curl, stream->client, stream->cancel);
+	ProgressBridge progress = { stream->cancel, NULL };
+	apply_common(curl, stream->client, &progress);
 	curl_easy_setopt(curl, CURLOPT_URL, stream->url);
 	curl_easy_setopt(curl, CURLOPT_RANGE, range);
 	FixedBuffer buffer = { stream->cache, 0, RANGE_CACHE_SIZE };
@@ -459,7 +473,8 @@ int vita_https_open_range_stream(VitaHttpsClient *client, const char *url,
 	CURL *curl = curl_easy_init();
 	if (!curl) result = VITA_HTTPS_ERROR_OUT_OF_MEMORY;
 	else {
-		apply_common(curl, client, cancel_flag);
+		ProgressBridge progress = { cancel_flag, NULL };
+		apply_common(curl, client, &progress);
 		curl_easy_setopt(curl, CURLOPT_URL, url);
 		curl_easy_setopt(curl, CURLOPT_RANGE, "0-0");
 		FixedBuffer probe = { stream->cache, 0, 1 };

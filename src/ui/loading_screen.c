@@ -160,14 +160,27 @@ static void draw_loading_frame(const char *query, const char *message,
 		float frac = (float)current / (float)total;
 		if (frac < 0.0f) frac = 0.0f;
 		if (frac > 1.0f) frac = 1.0f;
-		float bar_x = 180.0f, bar_y = 390.0f, bar_w = 600.0f, bar_h = 6.0f;
+		float bar_x = 180.0f, bar_y = 390.0f, bar_w = 600.0f, bar_h = 10.0f;
 		vita2d_draw_rectangle(bar_x, bar_y, bar_w, bar_h, COLOR_TRACK);
 		vita2d_draw_rectangle(bar_x, bar_y, bar_w * frac, bar_h, COLOR_ACCENT);
 		if (ui_runtime_font(UI_FONT_BODY)) {
-			char percent[32];
-			snprintf(percent, sizeof(percent), vt_i18n_str(VT_STR_LOADING_PROGRESS_PERCENT),
-			         (int)(frac * 100.0f));
+			char percent[48];
+			snprintf(percent, sizeof(percent),
+			         vt_i18n_str(VT_STR_LOADING_PROGRESS_PERCENT),
+			         (int)(frac * 100.0f + 0.5f));
 			draw_centered_text(430, COLOR_MUTED, UI_FONT_BODY, percent);
+		}
+	} else if (current > 0) {
+		float bar_x = 180.0f, bar_y = 390.0f, bar_w = 600.0f, bar_h = 10.0f;
+		float pulse = (float)((now / 8000ULL) % 600ULL) / 600.0f;
+		vita2d_draw_rectangle(bar_x, bar_y, bar_w, bar_h, COLOR_TRACK);
+		vita2d_draw_rectangle(bar_x + pulse * (bar_w - 120.0f), bar_y, 120.0f,
+		                      bar_h, COLOR_ACCENT);
+		if (ui_runtime_font(UI_FONT_BODY)) {
+			char detail[64];
+			double mb = (double)current / (1024.0 * 1024.0);
+			snprintf(detail, sizeof(detail), "%.1f MB", mb);
+			draw_centered_text(430, COLOR_MUTED, UI_FONT_BODY, detail);
 		}
 	}
 	if (download_controls) {

@@ -117,7 +117,7 @@ include("${VITASDK}/share/vita.cmake" REQUIRED)
 set(VITA_APP_NAME "SSSPlayer")
 set(VITA_TITLEID  "SSSP00001")
 set(VITA_VERSION  "01.01")
-set(SSSPLAYER_VERSION_LABEL "1.1.10")
+set(SSSPLAYER_VERSION_LABEL "1.1.11")
 set(SSSPLAYER_VPK_NAME "SSSPlayer-${SSSPLAYER_VERSION_LABEL}.vpk")
 
 set(VITA_MKSFOEX_FLAGS
@@ -194,6 +194,7 @@ set(SOURCES
   ## Common / i18n / settings / system / history
   src/common/debugScreen.c
   src/common/text_log.c
+  src/common/zip_extract.c
   src/i18n/i18n.c
   src/i18n/strings.c
   src/history/playback_history.c
@@ -201,6 +202,7 @@ set(SOURCES
   src/system/background_audio.c
   src/system/display_awake.c
   src/system/performance.c
+  src/system/app_update.c
   ## Network
   src/network/network_source.c
   src/network/webdav_source.c
@@ -258,7 +260,8 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 target_compile_options(${PROJECT_NAME} PRIVATE
   -mcpu=cortex-a9 -mfpu=neon -mfloat-abi=hard
   -ffunction-sections -fdata-sections
-  $<$<CONFIG:Release>:-O3>)
+  $<$<CONFIG:Release>:-O3>
+  -DSSSPLAYER_VERSION_LABEL=\"${SSSPLAYER_VERSION_LABEL}\")
 target_link_options(${PROJECT_NAME} PRIVATE
   -mcpu=cortex-a9 -mfpu=neon -mfloat-abi=hard
   -Wl,--gc-sections)
@@ -306,6 +309,7 @@ target_link_libraries(${PROJECT_NAME}
   SceAudiodec_stub
   SceGxm_stub
   SceAppMgr_stub
+  ScePromoterUtil_stub
   SceCommonDialog_stub
   SceAppUtil_stub
   SceShellSvc_stub

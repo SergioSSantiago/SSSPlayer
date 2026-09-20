@@ -106,6 +106,9 @@ typedef struct {
     int  browser_saved_selected;
     int  browser_saved_offset;
 
+    /* Confirm before deleting a file from the music/video browser */
+    int  browser_delete_confirm;
+
     /* Rename screen state */
     int  rename_playlist_idx;        /* which playlist is being renamed     */
     char rename_buf[128];            /* current name being edited           */

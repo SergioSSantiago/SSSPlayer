@@ -5,6 +5,7 @@ VT_STR(NONE, "", "")
 #include "i18n/strings_brand.def"
 #include "i18n/strings_local_media_screen.def"
 #include "i18n/strings_loading_screen.def"
+#include "i18n/strings_update.def"
 #include "i18n/strings_main.def"
 #include "i18n/strings_mini_player.def"
 #include "i18n/strings_music_player.def"

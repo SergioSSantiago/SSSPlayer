@@ -361,6 +361,27 @@ void ui_handle_input(UIState *ui,
     case UI_SCREEN_BROWSER: {
         int list_count = browser ? browser->count : 0;
 
+        if (ui->browser_delete_confirm) {
+            if (just_pressed & SCE_CTRL_CROSS) {
+                if (browser && ui->list_selected < browser->count) {
+                    FileEntry *e = &browser->entries[ui->list_selected];
+                    if (!e->is_directory) {
+                        sceIoRemove(e->path);
+                        file_browser_refresh(browser);
+                        if (ui->list_selected >= browser->count &&
+                            ui->list_selected > 0)
+                            ui->list_selected = browser->count - 1;
+                        if (ui->list_offset > ui->list_selected)
+                            ui->list_offset = ui->list_selected;
+                    }
+                }
+                ui->browser_delete_confirm = 0;
+            }
+            if (just_pressed & SCE_CTRL_CIRCLE)
+                ui->browser_delete_confirm = 0;
+            break;
+        }
+
         if (nav_pressed & SCE_CTRL_UP) {
             if (ui->list_selected > 0) {
                 ui->list_selected--;
@@ -445,7 +466,9 @@ void ui_handle_input(UIState *ui,
             ui_switch_screen(ui, UI_SCREEN_PLAYLIST_LIST);
         }
         if (just_pressed & SCE_CTRL_SQUARE) {
-            ui_switch_screen(ui, UI_SCREEN_VISUALIZER);
+            if (browser && ui->list_selected < browser->count &&
+                !browser->entries[ui->list_selected].is_directory)
+                ui->browser_delete_confirm = 1;
         }
         if (just_pressed & SCE_CTRL_LTRIGGER) {
             /* Add selected file to a user playlist */
@@ -2831,7 +2854,18 @@ void ui_render(const UIState    *ui,
                               SCREEN_WIDTH, content_h - 30);
         }
         draw_footer(ui,
-            "[X]Play  [O]Up  [T]Playlists  [S]Vis  L:Add  [SEL]Now Playing  [STA]Settings");
+            "[X]Play  [O]Up  [T]Playlists  [S]Delete  L:Add  [SEL]Now Playing  [STA]Settings");
+        if (ui->browser_delete_confirm) {
+            vita2d_draw_rectangle(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT,
+                                  0xB4000000u);
+            vita2d_draw_rectangle(180, 180, 600, 160, COLOR_BG);
+            noto_draw_text(210, 230, COLOR_TEXT, ui->font_medium.size,
+                           "Delete this file?");
+            noto_draw_text(210, 270, COLOR_TEXT_DIM, ui->font_small.size,
+                           "This cannot be undone.");
+            noto_draw_text(210, 310, COLOR_ACCENT, ui->font_small.size,
+                           "[X] Delete    [O] Cancel");
+        }
         break;
 
     case UI_SCREEN_NOW_PLAYING:

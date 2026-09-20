@@ -29,6 +29,7 @@
 #include "theme.h"
 #include "ui/touch.h"
 #include "video_bridge.h"
+#include "system/app_update.h"
 
 static Equalizer g_eq;
 
@@ -180,6 +181,9 @@ int main(void)
     g_ui.eq_preset_idx = g_eq.preset_idx;
 
     theme_manager_restore(&g_theme_mgr, &g_ui);
+
+    /* Offer a newer GitHub release when Wi-Fi is available. */
+    sss_app_update_check_on_launch();
 
     /* ── Main loop ── */
     while (!g_ui.request_exit) {

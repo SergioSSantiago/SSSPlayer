@@ -53,6 +53,9 @@ typedef struct VitaHttpsRequest {
 	VitaHttpsWriteCallback write;
 	void *write_opaque;
 	volatile int *cancel_flag;
+	/* Optional live size target for UI progress bars. Updated as soon as
+	 * Content-Length is known during the transfer (not only after finish). */
+	volatile long *progress_total;
 } VitaHttpsRequest;
 
 typedef struct VitaHttpsResponse {

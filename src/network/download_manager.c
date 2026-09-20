@@ -202,6 +202,7 @@ static int download_url(VtDownloadJob *job, const char *part) {
 		request.write = url_write;
 		request.write_opaque = &writer;
 		request.cancel_flag = &job->cancel;
+		request.progress_total = &job->progress_total;
 		memset(&response, 0, sizeof(response));
 		result = vita_https_perform(client, &request, &response);
 		if (response.content_length > 0)
