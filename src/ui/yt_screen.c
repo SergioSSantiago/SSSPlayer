@@ -81,6 +81,14 @@ typedef struct {
 	size_t detail_size;
 } YtRemuxJob;
 
+typedef struct {
+	const char *video;
+	const char *audio;
+	const char *dst;
+	char *detail;
+	size_t detail_size;
+} YtRemuxAvJob;
+
 static int yt_remux_worker(void *opaque)
 {
 	YtRemuxJob *job = opaque;
@@ -88,6 +96,18 @@ static int yt_remux_worker(void *opaque)
 	return yt_client_remux_audio_m4a(job->src, job->dst, job->detail,
 	                                 job->detail_size);
 }
+
+static int yt_remux_av_worker(void *opaque)
+{
+	YtRemuxAvJob *job = opaque;
+	if (!job) return -1;
+	return yt_client_remux_av_mp4(job->video, job->audio, job->dst, job->detail,
+	                              job->detail_size);
+}
+
+#define YT_VR_UA \
+	"com.google.android.apps.youtube.vr.oculus/1.60.19 " \
+	"(Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip"
 
 static void format_duration(int seconds, char *out, size_t out_size)
 {
@@ -257,7 +277,7 @@ static int run_yt_download(const char *url, const char *filename,
 				sceIoRemove(job.destination);
 				ui_message_show(
 				    "Unsupported video",
-				    "Need progressive 360p H.264 MP4 (itag 18). Re-download.",
+				    "Need playable H.264 MP4 (≤720p). Re-download.",
 				    3600);
 				return -1;
 			}
@@ -326,15 +346,119 @@ static int resolve_and_act(const YtSearchResult *item, UiYtSelection *selection,
 	}
 
 	if (choice == 1) {
-		if (!media.video_url[0]) {
+		const char *vurl = media.download_video_url[0]
+		                 ? media.download_video_url
+		                 : media.video_url;
+		if (!vurl || !vurl[0]) {
 			ui_message_show(
 			    "Download failed",
-			    "No H.264 progressive stream for this video", 3200);
+			    "No H.264 stream for this video", 3200);
 			return 0;
 		}
-		/* Always .mp4: progressive itag 18 is muxed H.264+AAC. */
+
+		/* Prefer adaptive ≤720p H.264 + AAC remux for maximum Vita quality. */
+		if (media.download_video_url[0] && media.audio_url[0]) {
+			char folder[512];
+			char v_name[128], a_name[128];
+			char remux_detail[160];
+			VtDownloadJob vjob, ajob;
+			YtRemuxAvJob remux;
+			char final_path[512];
+			char *dot;
+
+			snprintf(v_name, sizeof(v_name), "%s.v.mp4", base);
+			snprintf(a_name, sizeof(a_name), "%s.a.m4a", base);
+			if (!ui_destination_picker_kind(UI_DEST_KIND_VIDEO, NULL, folder,
+			                               sizeof(folder)))
+				return 0;
+
+			vt_download_job_init_url(&vjob, media.download_video_url);
+			vt_download_job_set_destination(&vjob, folder);
+			vt_download_job_set_filename(&vjob, v_name);
+			vt_download_job_set_user_agent(&vjob, YT_VR_UA);
+			if (ui_loading_run_download(
+			        media.download_height > 0
+			            ? "Downloading video (HQ)…"
+			            : "Downloading video…",
+			        vt_download_run, &vjob, &vjob.paused, &vjob.cancel,
+			        &vjob.progress_current, &vjob.progress_total) != 0) {
+				if (!vjob.cancel)
+					ui_message_show(
+					    vt_i18n_str(VT_STR_NETWORK_DOWNLOAD_FAILED),
+					    vjob.detail[0] ? vjob.detail : "Transfer failed",
+					    3000);
+				return 0;
+			}
+
+			vt_download_job_init_url(&ajob, media.audio_url);
+			vt_download_job_set_destination(&ajob, folder);
+			vt_download_job_set_filename(&ajob, a_name);
+			vt_download_job_set_user_agent(&ajob, YT_VR_UA);
+			if (ui_loading_run_download(
+			        "Downloading audio…", vt_download_run, &ajob,
+			        &ajob.paused, &ajob.cancel, &ajob.progress_current,
+			        &ajob.progress_total) != 0) {
+				sceIoRemove(vjob.destination);
+				if (!ajob.cancel)
+					ui_message_show(
+					    vt_i18n_str(VT_STR_NETWORK_DOWNLOAD_FAILED),
+					    ajob.detail[0] ? ajob.detail : "Transfer failed",
+					    3000);
+				return 0;
+			}
+
+			snprintf(final_path, sizeof(final_path), "%s", vjob.destination);
+			dot = strstr(final_path, ".v.mp4");
+			if (!dot) {
+				sceIoRemove(vjob.destination);
+				sceIoRemove(ajob.destination);
+				ui_message_show("Mux failed", "Bad temp path", 2800);
+				return 0;
+			}
+			snprintf(dot, (size_t)(sizeof(final_path) - (size_t)(dot - final_path)),
+			         ".mp4");
+
+			remux_detail[0] = '\0';
+			remux.video = vjob.destination;
+			remux.audio = ajob.destination;
+			remux.dst = final_path;
+			remux.detail = remux_detail;
+			remux.detail_size = sizeof(remux_detail);
+			if (ui_loading_run("Muxing HQ MP4…", yt_remux_av_worker, &remux,
+			                   NULL, NULL, NULL) != 0) {
+				sceIoRemove(vjob.destination);
+				sceIoRemove(ajob.destination);
+				sceIoRemove(final_path);
+				ui_message_show("Mux failed",
+				                remux_detail[0] ? remux_detail
+				                                : "Could not create MP4",
+				                3200);
+				return 0;
+			}
+			sceIoRemove(vjob.destination);
+			sceIoRemove(ajob.destination);
+			if (!yt_client_file_has_h264(final_path)) {
+				sceIoRemove(final_path);
+				ui_message_show(
+				    "Unsupported video",
+				    "Muxed file has no playable H.264 track.", 3600);
+				return 0;
+			}
+			{
+				char ok[96];
+				snprintf(ok, sizeof(ok),
+				         media.download_height > 0
+				             ? "Saved %dp H.264"
+				             : "Saved H.264",
+				         media.download_height);
+				ui_message_show(ok, final_path, 3200);
+			}
+			return 0;
+		}
+
+		/* Fallback: progressive muxed MP4 (usually 360p). */
 		snprintf(filename, sizeof(filename), "%s.mp4", base);
-		run_yt_download(media.video_url, filename, UI_DEST_KIND_VIDEO, 1);
+		run_yt_download(vurl, filename, UI_DEST_KIND_VIDEO, 1);
 		return 0;
 	}
 
@@ -342,7 +466,33 @@ static int resolve_and_act(const YtSearchResult *item, UiYtSelection *selection,
 		if (media.audio_url[0]) {
 			snprintf(filename, sizeof(filename), "%s.%s", base,
 			         media.audio_ext[0] ? media.audio_ext : "m4a");
-			run_yt_download(media.audio_url, filename, UI_DEST_KIND_AUDIO, 0);
+			{
+				VtDownloadJob job;
+				char destination[512];
+				if (!ui_destination_picker_kind(UI_DEST_KIND_AUDIO, NULL,
+				                               destination, sizeof(destination)))
+					return 0;
+				vt_download_job_init_url(&job, media.audio_url);
+				vt_download_job_set_destination(&job, destination);
+				vt_download_job_set_filename(&job, filename);
+				vt_download_job_set_user_agent(&job, YT_VR_UA);
+				if (ui_loading_run_download(
+				        vt_i18n_str(VT_STR_NETWORK_DOWNLOADING),
+				        vt_download_run, &job, &job.paused, &job.cancel,
+				        &job.progress_current, &job.progress_total) == 0)
+					ui_message_show(
+					    vt_i18n_str(VT_STR_NETWORK_DOWNLOAD_COMPLETE),
+					    job.destination, 2800);
+				else if (job.cancel)
+					ui_message_show(
+					    vt_i18n_str(VT_STR_NETWORK_DOWNLOAD_ABORTED),
+					    job.destination, 2400);
+				else
+					ui_message_show(
+					    vt_i18n_str(VT_STR_NETWORK_DOWNLOAD_FAILED),
+					    job.detail[0] ? job.detail : "Transfer failed",
+					    3000);
+			}
 			return 0;
 		}
 

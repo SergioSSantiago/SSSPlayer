@@ -15,6 +15,7 @@ typedef struct {
 	char destination_directory[VT_NETWORK_PATH_MAX];
 	char destination[VT_NETWORK_PATH_MAX];
 	char detail[192];
+	char user_agent[160];
 	volatile long progress_current;
 	volatile long progress_total;
 	volatile int paused;
@@ -29,6 +30,7 @@ void vt_download_job_init_network(VtDownloadJob *job,
 void vt_download_job_init_url(VtDownloadJob *job, const char *url);
 void vt_download_job_set_destination(VtDownloadJob *job, const char *directory);
 void vt_download_job_set_filename(VtDownloadJob *job, const char *filename);
+void vt_download_job_set_user_agent(VtDownloadJob *job, const char *user_agent);
 
 /* Suitable for ui_loading_run(). Returns zero only when destination contains
  * a fully flushed file. Direct URLs support explicit HTTP and HTTPS. */

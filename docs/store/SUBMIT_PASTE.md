@@ -26,7 +26,7 @@ SSSP00001
 
 **Version**
 ```
-1.1.12
+1.1.13
 ```
 
 **Type / Category** (pick closest to Utility / Media / Application)
@@ -38,7 +38,7 @@ https://github.com/SergioSSantiago/SSSPlayer
 
 **Download URL**
 ```
-https://github.com/SergioSSantiago/SSSPlayer/releases/download/v1.1.12/SSSPlayer-1.1.12.vpk
+https://github.com/SergioSSantiago/SSSPlayer/releases/download/v1.1.13/SSSPlayer-1.1.13.vpk
 ```
 
 **Icon file**

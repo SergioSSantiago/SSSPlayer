@@ -146,8 +146,11 @@ static int download_url(VtDownloadJob *job, const char *part) {
 	int result = -1;
 	const int max_attempts = 3;
 
-	const char *yt_ua =
+	const char *yt_android_ua =
 	    "com.google.android.youtube/21.26.364 (Linux; U; Android 11) gzip";
+	const char *yt_vr_ua =
+	    "com.google.android.apps.youtube.vr.oculus/1.60.19 "
+	    "(Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip";
 	int is_youtube = strstr(job->url, "googlevideo.com") ||
 	                 strstr(job->url, "youtube.com");
 
@@ -155,10 +158,15 @@ static int download_url(VtDownloadJob *job, const char *part) {
 	/* Plain HTTP is an explicit direct-download choice. vita-https still keeps
 	 * HTTPS verification enabled and forbids HTTPS-to-HTTP redirect downgrades. */
 	config.allow_http = 1;
-	/* googlevideo URLs are signed for the InnerTube ANDROID client — a Vita UA
-	 * often yields truncated/corrupt bodies that look like H.264 for ~1s. */
-	config.user_agent = is_youtube ? yt_ua
-	    : "Mozilla/5.0 (PlayStation Vita) SSSPlayer/1.0 AppleWebKit/531.22.8";
+	if (job->user_agent[0])
+		config.user_agent = job->user_agent;
+	else if (is_youtube)
+		/* Default ANDROID UA; adaptive VR URLs should set user_agent explicitly. */
+		config.user_agent = yt_android_ua;
+	else
+		config.user_agent =
+		    "Mozilla/5.0 (PlayStation Vita) SSSPlayer/1.0 AppleWebKit/531.22.8";
+	(void)yt_vr_ua;
 	/* YouTube progressive files are large; do not apply a short overall
 	 * CURLOPT_TIMEOUT. Detect dead links with a generous low-speed window. */
 	config.connect_timeout_ms = 30000;
@@ -292,6 +300,13 @@ void vt_download_job_set_filename(VtDownloadJob *job, const char *filename) {
 	if (!job->preferred_name[0] || !strcmp(job->preferred_name, ".") ||
 	    !strcmp(job->preferred_name, ".."))
 		snprintf(job->preferred_name, sizeof(job->preferred_name), "download");
+}
+
+void vt_download_job_set_user_agent(VtDownloadJob *job, const char *user_agent) {
+	if (!job) return;
+	job->user_agent[0] = '\0';
+	if (user_agent && user_agent[0])
+		snprintf(job->user_agent, sizeof(job->user_agent), "%s", user_agent);
 }
 
 int vt_download_run(void *opaque) {

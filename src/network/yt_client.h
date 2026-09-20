@@ -24,12 +24,15 @@ typedef struct {
 
 typedef struct {
 	char video_url[YT_URL_MAX];
+	/* Best adaptive H.264 ≤720p for high-quality downloads (mux with audio). */
+	char download_video_url[YT_URL_MAX];
 	char audio_url[YT_URL_MAX];
 	char video_ext[8];   /* mp4, webm, … */
 	char audio_ext[8];   /* m4a, webm, mp3, … */
 	char title[YT_TITLE_MAX];
 	char author[YT_AUTHOR_MAX];
 	int length_seconds;
+	int download_height; /* 0 if unknown / progressive-only */
 	/* When set, audio_url is empty but video_url is a muxed progressive MP4
 	 * (itag 18) whose AAC track can be remuxed to .m4a after download. */
 	int audio_via_progressive;
@@ -48,6 +51,10 @@ int yt_client_resolve(const char *video_id, YtResolvedMedia *out,
 /* Stream-copy the first AAC track from a progressive MP4 into an M4A file. */
 int yt_client_remux_audio_m4a(const char *src_mp4, const char *dst_m4a,
                               char *detail, size_t detail_size);
+
+/* Mux separate H.264 video + AAC audio files into one progressive MP4. */
+int yt_client_remux_av_mp4(const char *video_path, const char *audio_path,
+                           const char *dst_mp4, char *detail, size_t detail_size);
 
 /* Returns 1 if path has an H.264 video track suitable for Vita playback. */
 int yt_client_file_has_h264(const char *path);

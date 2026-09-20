@@ -487,17 +487,39 @@ static int parse_innertube_player(const char *json, YtResolvedMedia *out)
 
 	adaptive = sd ? json_object_get(sd, "adaptiveFormats") : NULL;
 	if (json_is_array(adaptive)) {
+		int best_video = -1;
 		for (i = 0; i < json_array_size(adaptive); i++) {
 			json_t *f = json_array_get(adaptive, i);
 			const char *url = json_string_value(json_object_get(f, "url"));
 			const char *mime =
 			    json_string_value(json_object_get(f, "mimeType"));
+			json_t *height = json_object_get(f, "height");
 			json_t *bitrate = json_object_get(f, "bitrate");
+			int h = json_is_integer(height) ? (int)json_integer_value(height)
+			                                : 0;
 			int br = json_is_integer(bitrate) ? (int)json_integer_value(bitrate)
 			                                  : 0;
 			int prefer_mp3;
 			int prefer_m4a;
+			int score;
 			if (!url || !url[0] || !mime) continue;
+			if (strncmp(mime, "video/", 6) == 0 && strstr(mime, "avc1")) {
+				if (h <= 0) {
+					const char *label =
+					    json_string_value(json_object_get(f, "qualityLabel"));
+					if (label) sscanf(label, "%dp", &h);
+				}
+				/* Vita HW decode ceiling is 1280x720. */
+				if (h <= 0 || h > 720) continue;
+				score = h * 10000 + br;
+				if (score > best_video) {
+					best_video = score;
+					copy_field(out->download_video_url,
+					           sizeof(out->download_video_url), url);
+					out->download_height = h;
+				}
+				continue;
+			}
 			if (strncmp(mime, "audio/", 6) != 0) continue;
 			prefer_mp3 = strstr(mime, "mpeg") || strstr(mime, "mp3");
 			prefer_m4a = strstr(mime, "mp4") || strstr(mime, "mp4a");
@@ -520,7 +542,10 @@ static int parse_innertube_player(const char *json, YtResolvedMedia *out)
 		out->audio_via_progressive = 1;
 
 	json_decref(root);
-	return out->video_url[0] || out->audio_url[0] ? 0 : -1;
+	return out->video_url[0] || out->audio_url[0] ||
+	               out->download_video_url[0]
+	           ? 0
+	           : -1;
 }
 
 static void merge_resolved(YtResolvedMedia *dst, const YtResolvedMedia *src)
@@ -529,6 +554,16 @@ static void merge_resolved(YtResolvedMedia *dst, const YtResolvedMedia *src)
 	if (!dst->video_url[0] && src->video_url[0]) {
 		copy_field(dst->video_url, sizeof(dst->video_url), src->video_url);
 		copy_field(dst->video_ext, sizeof(dst->video_ext), src->video_ext);
+	}
+	if (!dst->download_video_url[0] && src->download_video_url[0]) {
+		copy_field(dst->download_video_url, sizeof(dst->download_video_url),
+		           src->download_video_url);
+		dst->download_height = src->download_height;
+	} else if (src->download_height > dst->download_height &&
+	           src->download_video_url[0]) {
+		copy_field(dst->download_video_url, sizeof(dst->download_video_url),
+		           src->download_video_url);
+		dst->download_height = src->download_height;
 	}
 	if (!dst->audio_url[0] && src->audio_url[0]) {
 		copy_field(dst->audio_url, sizeof(dst->audio_url), src->audio_url);
@@ -639,8 +674,8 @@ int yt_client_resolve(const char *video_id, YtResolvedMedia *out,
 		buffer_free(&buffer);
 	}
 
-	/* ANDROID_VR fills adaptive audio URLs when the bot-gate is open. */
-	if (!out->audio_url[0]) {
+	/* ANDROID_VR fills adaptive audio + ≤720p H.264 video for HQ downloads. */
+	if (!out->audio_url[0] || !out->download_video_url[0]) {
 		body = json_pack("{s:s,s:b,s:b}",
 		                 "videoId", video_id,
 		                 "contentCheckOk", 1,
@@ -657,7 +692,9 @@ int yt_client_resolve(const char *video_id, YtResolvedMedia *out,
 		}
 	}
 
-	if (!have || (!out->video_url[0] && !out->audio_url[0])) {
+	if (!have ||
+	    (!out->video_url[0] && !out->audio_url[0] &&
+	     !out->download_video_url[0])) {
 		set_detail(detail, detail_size, "Could not resolve media streams");
 		return -1;
 	}
@@ -778,6 +815,164 @@ fail:
 	return ret;
 }
 
+int yt_client_remux_av_mp4(const char *video_path, const char *audio_path,
+                           const char *dst_mp4, char *detail, size_t detail_size)
+{
+	AVFormatContext *vin = NULL;
+	AVFormatContext *ain = NULL;
+	AVFormatContext *out = NULL;
+	AVPacket *pkt = NULL;
+	int v_in = -1, a_in = -1;
+	int v_out = -1, a_out = -1;
+	unsigned i;
+	int ret;
+
+	if (!video_path || !audio_path || !dst_mp4) {
+		set_detail(detail, detail_size, "Invalid remux paths");
+		return -1;
+	}
+	ret = avformat_open_input(&vin, video_path, NULL, NULL);
+	if (ret < 0) {
+		set_detail(detail, detail_size, "Could not open video track");
+		return ret;
+	}
+	ret = avformat_find_stream_info(vin, NULL);
+	if (ret < 0) {
+		set_detail(detail, detail_size, "Could not read video info");
+		goto fail;
+	}
+	ret = avformat_open_input(&ain, audio_path, NULL, NULL);
+	if (ret < 0) {
+		set_detail(detail, detail_size, "Could not open audio track");
+		goto fail;
+	}
+	ret = avformat_find_stream_info(ain, NULL);
+	if (ret < 0) {
+		set_detail(detail, detail_size, "Could not read audio info");
+		goto fail;
+	}
+	for (i = 0; i < vin->nb_streams; i++) {
+		if (vin->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO &&
+		    vin->streams[i]->codecpar->codec_id == AV_CODEC_ID_H264) {
+			v_in = (int)i;
+			break;
+		}
+	}
+	for (i = 0; i < ain->nb_streams; i++) {
+		if (ain->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
+			a_in = (int)i;
+			break;
+		}
+	}
+	if (v_in < 0 || a_in < 0) {
+		set_detail(detail, detail_size, "Missing H.264 or audio track");
+		ret = -1;
+		goto fail;
+	}
+
+	ret = avformat_alloc_output_context2(&out, NULL, "mp4", dst_mp4);
+	if (ret < 0 || !out) {
+		set_detail(detail, detail_size, "Could not create MP4 output");
+		ret = -1;
+		goto fail;
+	}
+	{
+		AVStream *in_st = vin->streams[v_in];
+		AVStream *out_st = avformat_new_stream(out, NULL);
+		if (!out_st) {
+			ret = -1;
+			goto fail;
+		}
+		ret = avcodec_parameters_copy(out_st->codecpar, in_st->codecpar);
+		if (ret < 0) goto fail;
+		out_st->codecpar->codec_tag = 0;
+		out_st->time_base = in_st->time_base;
+		v_out = out_st->index;
+	}
+	{
+		AVStream *in_st = ain->streams[a_in];
+		AVStream *out_st = avformat_new_stream(out, NULL);
+		if (!out_st) {
+			ret = -1;
+			goto fail;
+		}
+		ret = avcodec_parameters_copy(out_st->codecpar, in_st->codecpar);
+		if (ret < 0) goto fail;
+		out_st->codecpar->codec_tag = 0;
+		out_st->time_base = in_st->time_base;
+		a_out = out_st->index;
+	}
+	if (!(out->oformat->flags & AVFMT_NOFILE)) {
+		ret = avio_open(&out->pb, dst_mp4, AVIO_FLAG_WRITE);
+		if (ret < 0) {
+			set_detail(detail, detail_size, "Could not write MP4 file");
+			goto fail;
+		}
+	}
+	ret = avformat_write_header(out, NULL);
+	if (ret < 0) {
+		set_detail(detail, detail_size, "Could not write MP4 header");
+		goto fail;
+	}
+	pkt = av_packet_alloc();
+	if (!pkt) {
+		ret = -1;
+		goto fail;
+	}
+	while ((ret = av_read_frame(vin, pkt)) >= 0) {
+		if (pkt->stream_index != v_in) {
+			av_packet_unref(pkt);
+			continue;
+		}
+		pkt->stream_index = v_out;
+		av_packet_rescale_ts(pkt, vin->streams[v_in]->time_base,
+		                     out->streams[v_out]->time_base);
+		ret = av_interleaved_write_frame(out, pkt);
+		av_packet_unref(pkt);
+		if (ret < 0) {
+			set_detail(detail, detail_size, "Video remux failed");
+			goto fail;
+		}
+	}
+	if (ret != AVERROR_EOF && ret < 0) {
+		set_detail(detail, detail_size, "Video remux read failed");
+		goto fail;
+	}
+	while ((ret = av_read_frame(ain, pkt)) >= 0) {
+		if (pkt->stream_index != a_in) {
+			av_packet_unref(pkt);
+			continue;
+		}
+		pkt->stream_index = a_out;
+		av_packet_rescale_ts(pkt, ain->streams[a_in]->time_base,
+		                     out->streams[a_out]->time_base);
+		ret = av_interleaved_write_frame(out, pkt);
+		av_packet_unref(pkt);
+		if (ret < 0) {
+			set_detail(detail, detail_size, "Audio remux failed");
+			goto fail;
+		}
+	}
+	if (ret != AVERROR_EOF && ret < 0) {
+		set_detail(detail, detail_size, "Audio remux read failed");
+		goto fail;
+	}
+	av_write_trailer(out);
+	ret = 0;
+	set_detail(detail, detail_size, "");
+
+fail:
+	if (pkt) av_packet_free(&pkt);
+	if (out) {
+		if (out->pb && !(out->oformat->flags & AVFMT_NOFILE))
+			avio_closep(&out->pb);
+		avformat_free_context(out);
+	}
+	if (ain) avformat_close_input(&ain);
+	if (vin) avformat_close_input(&vin);
+	return ret;
+}
+
 int yt_client_file_has_h264(const char *path)
 {
 	AVFormatContext *fmt = NULL;
@@ -794,11 +989,7 @@ int yt_client_file_has_h264(const char *path)
 		AVCodecParameters *par = fmt->streams[i]->codecpar;
 		if (par->codec_type == AVMEDIA_TYPE_VIDEO &&
 		    par->codec_id == AV_CODEC_ID_H264) {
-			/* Vita HW path is reliable around 360p progressive; taller
-			 * Progressive High files often die after the first second. */
-			if (par->height > 0 && par->height <= 480)
-				found = 1;
-			else if (par->height <= 0)
+			if (par->height <= 0 || par->height <= 720)
 				found = 1;
 			break;
 		}
