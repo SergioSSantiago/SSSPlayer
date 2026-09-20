@@ -117,7 +117,7 @@ include("${VITASDK}/share/vita.cmake" REQUIRED)
 set(VITA_APP_NAME "SSSPlayer")
 set(VITA_TITLEID  "SSSP00001")
 set(VITA_VERSION  "01.01")
-set(SSSPLAYER_VERSION_LABEL "1.1.13")
+set(SSSPLAYER_VERSION_LABEL "1.1.14")
 set(SSSPLAYER_VPK_NAME "SSSPlayer-${SSSPLAYER_VERSION_LABEL}.vpk")
 
 set(VITA_MKSFOEX_FLAGS
@@ -203,6 +203,7 @@ set(SOURCES
   src/system/display_awake.c
   src/system/performance.c
   src/system/app_update.c
+  src/system/pkg_promote.c
   ## Network
   src/network/network_source.c
   src/network/webdav_source.c

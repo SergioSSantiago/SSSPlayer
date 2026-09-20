@@ -10,8 +10,6 @@
 #include <psp2/io/fcntl.h>
 #include <psp2/io/stat.h>
 #include <psp2/kernel/processmgr.h>
-#include <psp2/promoterutil.h>
-#include <psp2/sysmodule.h>
 #include <vita2d.h>
 #include <vita_https.h>
 
@@ -19,6 +17,7 @@
 #include "i18n/i18n.h"
 #include "network/download_manager.h"
 #include "settings/preferences.h"
+#include "system/pkg_promote.h"
 #include "ui/brand.h"
 #include "ui/components.h"
 #include "ui/loading_screen.h"
@@ -212,34 +211,6 @@ static void remove_tree(const char *path) {
 	}
 }
 
-static int promote_pkg(const char *path) {
-	int state = 0;
-	int result = 0;
-	int ret;
-
-	ret = sceSysmoduleLoadModuleInternal(SCE_SYSMODULE_INTERNAL_PROMOTER_UTIL);
-	if (ret < 0) return ret;
-	ret = scePromoterUtilityInit();
-	if (ret < 0) {
-		sceSysmoduleUnloadModuleInternal(SCE_SYSMODULE_INTERNAL_PROMOTER_UTIL);
-		return ret;
-	}
-	ret = scePromoterUtilityPromotePkg(path, 0);
-	if (ret < 0) goto done;
-	do {
-		ret = scePromoterUtilityGetState(&state);
-		if (ret < 0) goto done;
-		sceKernelDelayThread(200 * 1000);
-	} while (state);
-	ret = scePromoterUtilityGetResult(&result);
-	if (ret < 0) goto done;
-	ret = result;
-done:
-	scePromoterUtilityExit();
-	sceSysmoduleUnloadModuleInternal(SCE_SYSMODULE_INTERNAL_PROMOTER_UTIL);
-	return ret;
-}
-
 static int install_update(const UpdateInfo *info) {
 	VtDownloadJob job;
 	int result;
@@ -268,7 +239,7 @@ static int install_update(const UpdateInfo *info) {
 		                vt_i18n_str(VT_STR_UPDATE_EXTRACT_FAILED), 3600);
 		return -1;
 	}
-	result = promote_pkg(UPDATE_PKG_DIR);
+	result = sss_pkg_promote(UPDATE_PKG_DIR);
 	remove_tree(UPDATE_PKG_DIR);
 	sceIoRemove(job.destination);
 	if (result < 0) {
