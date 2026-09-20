@@ -1,0 +1,5 @@
+ffmpeg.commit=ea3d24bbe3c58b171e55fe2151fc7ffaca3ab3d2
+wiliwili.commit=88e5876bea9502d06f46a8656e3530684d3aaf7d
+wiliwili.ffmpeg-patch.sha256=2d38529d10c74560db3909cf8c2f3e359b128c04fb29f6dd0085770ed81cef6c
+ffmpeg.license=LGPL-2.1-or-later
+wiliwili.license=GPL-3.0

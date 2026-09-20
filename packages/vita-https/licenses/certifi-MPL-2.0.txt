@@ -1,0 +1,17 @@
+This package contains a modified version of ca-bundle.crt:
+
+ca-bundle.crt -- Bundle of CA Root Certificates
+
+This is a bundle of X.509 certificates of public Certificate Authorities
+(CA). These were automatically extracted from Mozilla's root certificates
+file (certdata.txt). The source is available from Mozilla at:
+https://hg.mozilla.org/mozilla-central/file/tip/security/nss/lib/ckfw/builtins/certdata.txt
+
+***** BEGIN LICENSE BLOCK *****
+This Source Code Form is subject to the terms of the Mozilla Public License,
+v. 2.0. If a copy of the MPL was not distributed with this file, You can obtain
+one at https://mozilla.org/MPL/2.0/.
+***** END LICENSE BLOCK *****
+
+certifi upstream: https://github.com/certifi/python-certifi
+Pinned certifi release: 2026.07.22

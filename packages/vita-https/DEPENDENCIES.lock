@@ -1,0 +1,11 @@
+curl.version=8.21.0
+curl.source.sha256=aa1b66a70eace83dc624508745646c08ae561de512ab403adffb93ac87fc72e6
+curl.tls_backend=Mbed TLS
+mbedtls.version=3.6.5
+mbedtls.source.sha256=4a11f1777bb95bf4ad96721cac945a26e04bf19f57d905f241fe77ebeddf46d8
+mbedtls.vita_patch.sha256=9a035c50864c082c95240ffe39327fb30086c3b30c9b3a81e4f65e51e2b9bbe8
+vitasdk.packages.commit=3c2a993afd5f30cb820cb900e7bc7f4d2b45d308
+certifi.version=2026.07.22
+certifi.cacert.sha256=9cc2a774b5198dcff14d9be1e66091f538975d867ce029a96bce15a55dfd730f
+zlib.version=1.3.2
+zstd.version=1.5.7
