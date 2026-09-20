@@ -178,18 +178,23 @@ static int pick_ext_from_mime(const char *mime, const char *fallback,
                               char *out, size_t out_size)
 {
 	if (mime) {
-		if (strstr(mime, "audio/mpeg") || strstr(mime, "audio/mp3"))
-			return snprintf(out, out_size, "mp3") > 0;
-		if (strstr(mime, "audio/mp4") || strstr(mime, "audio/aac") ||
-		    strstr(mime, "mp4a"))
-			return snprintf(out, out_size, "m4a") > 0;
-		if (strstr(mime, "audio/webm") || strstr(mime, "audio/opus") ||
-		    strstr(mime, "opus"))
-			return snprintf(out, out_size, "webm") > 0;
-		if (strstr(mime, "video/mp4"))
-			return snprintf(out, out_size, "mp4") > 0;
-		if (strstr(mime, "video/webm"))
-			return snprintf(out, out_size, "webm") > 0;
+		/* Video first: progressive mime is often
+		 * video/mp4; codecs="avc1..., mp4a..." — do NOT treat mp4a as audio. */
+		if (strncmp(mime, "video/", 6) == 0) {
+			if (strstr(mime, "mp4") || strstr(mime, "avc"))
+				return snprintf(out, out_size, "mp4") > 0;
+			if (strstr(mime, "webm"))
+				return snprintf(out, out_size, "webm") > 0;
+		}
+		if (strncmp(mime, "audio/", 6) == 0) {
+			if (strstr(mime, "mpeg") || strstr(mime, "mp3"))
+				return snprintf(out, out_size, "mp3") > 0;
+			if (strstr(mime, "mp4") || strstr(mime, "aac") ||
+			    strstr(mime, "mp4a"))
+				return snprintf(out, out_size, "m4a") > 0;
+			if (strstr(mime, "webm") || strstr(mime, "opus"))
+				return snprintf(out, out_size, "webm") > 0;
+		}
 	}
 	return snprintf(out, out_size, "%s", fallback ? fallback : "bin") > 0;
 }

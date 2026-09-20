@@ -321,8 +321,8 @@ static int resolve_and_act(const YtSearchResult *item, UiYtSelection *selection,
 			ui_message_show("Download failed", "No video stream URL", 2800);
 			return 0;
 		}
-		snprintf(filename, sizeof(filename), "%s.%s", base,
-		         media.video_ext[0] ? media.video_ext : "mp4");
+		/* Always .mp4: progressive itag 18 is muxed H.264+AAC. */
+		snprintf(filename, sizeof(filename), "%s.mp4", base);
 		sceIoMkdir("ux0:video", 0777);
 		run_yt_download(media.video_url, filename, "ux0:video");
 		return 0;
