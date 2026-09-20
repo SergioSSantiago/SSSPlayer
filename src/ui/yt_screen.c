@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include <psp2/ctrl.h>
+#include <psp2/io/fcntl.h>
 #include <psp2/io/stat.h>
 #include <psp2/kernel/processmgr.h>
 #include <vita2d.h>
@@ -71,6 +72,21 @@ static int yt_resolve_worker(void *opaque)
 	if (!job) return -1;
 	return yt_client_resolve(job->video_id, job->media, job->detail,
 	                         job->detail_size);
+}
+
+typedef struct {
+	const char *src;
+	const char *dst;
+	char *detail;
+	size_t detail_size;
+} YtRemuxJob;
+
+static int yt_remux_worker(void *opaque)
+{
+	YtRemuxJob *job = opaque;
+	if (!job) return -1;
+	return yt_client_remux_audio_m4a(job->src, job->dst, job->detail,
+	                                 job->detail_size);
 }
 
 static void format_duration(int seconds, char *out, size_t out_size)
@@ -313,20 +329,76 @@ static int resolve_and_act(const YtSearchResult *item, UiYtSelection *selection,
 	}
 
 	if (choice == 2) {
-		if (!media.audio_url[0]) {
-			ui_message_show("Download failed", "No audio stream URL", 2800);
+		sceIoMkdir("ux0:music", 0777);
+
+		if (media.audio_url[0]) {
+			snprintf(filename, sizeof(filename), "%s.%s", base,
+			         media.audio_ext[0] ? media.audio_ext : "m4a");
+			if (run_yt_download(media.audio_url, filename, "ux0:music") == 0) {
+				ui_message_show(
+				    "Audio saved",
+				    "Saved as M4A (AAC). Play it from ux0:/music or uma0:/music.",
+				    3200);
+			}
 			return 0;
 		}
-		/* Prefer .mp3 when the mirror provides audio/mpeg; otherwise M4A/WEBM. */
-		snprintf(filename, sizeof(filename), "%s.%s", base,
-		         media.audio_ext[0] ? media.audio_ext : "m4a");
-		sceIoMkdir("ux0:music", 0777);
-		if (run_yt_download(media.audio_url, filename, "ux0:music") == 0) {
-			ui_message_show(
-			    "Audio saved",
-			    "Saved as M4A (AAC). Play it from ux0:/music or uma0:/music.",
-			    3200);
+
+		if (media.audio_via_progressive && media.video_url[0]) {
+			char temp_name[128];
+			char folder[512];
+			char final_path[512];
+			char remux_detail[160];
+			VtDownloadJob dl;
+			YtRemuxJob remux;
+			char *yt;
+
+			snprintf(temp_name, sizeof(temp_name), "%s.yt.mp4", base);
+			if (!ui_destination_picker("ux0:music", folder, sizeof(folder)))
+				return 0;
+			vt_download_job_init_url(&dl, media.video_url);
+			vt_download_job_set_destination(&dl, folder);
+			vt_download_job_set_filename(&dl, temp_name);
+			if (ui_loading_run_download(
+			        "Downloading audio…", vt_download_run, &dl, &dl.paused,
+			        &dl.cancel, &dl.progress_current, &dl.progress_total) != 0) {
+				if (!dl.cancel)
+					ui_message_show(
+					    vt_i18n_str(VT_STR_NETWORK_DOWNLOAD_FAILED),
+					    dl.detail[0] ? dl.detail : "Transfer failed", 3000);
+				return 0;
+			}
+
+			snprintf(final_path, sizeof(final_path), "%s", dl.destination);
+			yt = strstr(final_path, ".yt.mp4");
+			if (!yt) {
+				ui_message_show("Audio extract failed", "Bad temp path", 2800);
+				sceIoRemove(dl.destination);
+				return 0;
+			}
+			snprintf(yt, (size_t)(sizeof(final_path) - (size_t)(yt - final_path)),
+			         ".m4a");
+
+			remux_detail[0] = '\0';
+			remux.src = dl.destination;
+			remux.dst = final_path;
+			remux.detail = remux_detail;
+			remux.detail_size = sizeof(remux_detail);
+			if (ui_loading_run("Extracting audio…", yt_remux_worker, &remux,
+			                   NULL, NULL, NULL) != 0) {
+				sceIoRemove(dl.destination);
+				sceIoRemove(final_path);
+				ui_message_show("Audio extract failed",
+				                remux_detail[0] ? remux_detail
+				                                : "Could not create M4A",
+				                3200);
+				return 0;
+			}
+			sceIoRemove(dl.destination);
+			ui_message_show("Audio saved", final_path, 3200);
+			return 0;
 		}
+
+		ui_message_show("Download failed", "No audio stream URL", 2800);
 		return 0;
 	}
 	return 0;

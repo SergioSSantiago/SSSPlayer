@@ -1,7 +1,7 @@
 # SSSPlayer
 
-**Latest release: [v1.1.6](https://github.com/SergioSSantiago/SSSPlayer/releases/tag/v1.1.6)**  
-Download: `SSSPlayer-1.1.6.vpk`
+**Latest release: [v1.1.7](https://github.com/SergioSSantiago/SSSPlayer/releases/tag/v1.1.7)**  
+Download: `SSSPlayer-1.1.7.vpk`
 
 Music + video media player for PlayStation Vita by **[SergioSSantiago](https://github.com/SergioSSantiago)**.
 
@@ -11,7 +11,7 @@ SSSPlayer brings together a polished music experience (equalizer, visualizer, pl
 |---|---|
 | **TITLEID** | `SSSP00001` |
 | **Developer** | [SergioSSantiago](https://github.com/SergioSSantiago) |
-| **Version** | 1.1.6 |
+| **Version** | 1.1.7 |
 | **Data** | `ux0:data/SSSPlayer/` |
 | **License** | GPL-3.0-only |
 

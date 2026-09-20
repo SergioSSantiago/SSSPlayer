@@ -1,8 +1,8 @@
 /*
- * YouTube client via InnerTube (same approach as ViTube / yt-dlp Android
- * clients). Search uses the ANDROID client; stream resolve uses ANDROID_VR
- * so progressive and adaptive audio URLs arrive already signed (no JS `n`
- * cipher). GPL-3.0 — approach inspired by shorelight82/vitube-vpk.
+ * YouTube client via InnerTube (ViTube / yt-dlp Android-style clients).
+ * Search: ANDROID + continuation pages.
+ * Resolve: ANDROID for progressive play, ANDROID_VR for adaptive audio when
+ * the bot-gate allows it. GPL-3.0 — approach inspired by vitube-vpk.
  */
 #include "network/yt_client.h"
 
@@ -12,9 +12,13 @@
 #include <string.h>
 
 #include <jansson.h>
+#include <libavformat/avformat.h>
+#include <libavcodec/avcodec.h>
 #include <vita_https.h>
 
-#define YT_RESPONSE_MAX (1024 * 1024)
+#define YT_RESPONSE_MAX (1536 * 1024)
+#define YT_CONTINUATION_MAX 1024
+#define YT_SEARCH_PAGES 4
 
 #define IT_BASE "https://youtubei.googleapis.com/youtubei/v1/"
 
@@ -23,14 +27,13 @@
 	"com.google.android.youtube/" IT_ANDROID_VERSION \
 	" (Linux; U; Android 11) gzip"
 
-/* ANDROID_VR returns plain signed adaptive audio URLs; ANDROID often omits
- * them (cipher / empty). Progressive itag 18 still comes through. */
 #define IT_VR_VERSION "1.60.19"
 #define IT_VR_UA \
 	"com.google.android.apps.youtube.vr.oculus/" IT_VR_VERSION \
 	" (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip"
 
-#define IT_LIST_FIELDS "contents,continuationContents"
+/* responseContext keeps visitorData; continuation lives under contents. */
+#define IT_LIST_FIELDS "contents,continuationContents,responseContext"
 
 typedef struct {
 	unsigned char *data;
@@ -38,6 +41,9 @@ typedef struct {
 	size_t capacity;
 	size_t limit;
 } YtBuffer;
+
+static char g_visitor_data[768];
+static char g_visitor_header[832];
 
 static size_t buffer_write(const void *contents, size_t bytes, void *opaque)
 {
@@ -80,6 +86,29 @@ static void copy_field(char *dst, size_t dst_size, const char *src)
 		return;
 	}
 	snprintf(dst, dst_size, "%s", src);
+}
+
+static void harvest_visitor_data(const char *body)
+{
+	static const char key[] = "\"visitorData\":\"";
+	const char *start;
+	const char *end;
+	size_t len;
+
+	if (!body) return;
+	start = strstr(body, key);
+	if (!start) return;
+	start += sizeof(key) - 1;
+	end = strchr(start, '"');
+	if (!end || end == start) return;
+	len = (size_t)(end - start);
+	if (len >= sizeof(g_visitor_data)) return;
+	if (memcmp(g_visitor_data, start, len) == 0 && g_visitor_data[len] == '\0')
+		return;
+	memcpy(g_visitor_data, start, len);
+	g_visitor_data[len] = '\0';
+	snprintf(g_visitor_header, sizeof(g_visitor_header),
+	         "X-Goog-Visitor-Id: %s", g_visitor_data);
 }
 
 static int looks_like_video_id(const char *id)
@@ -212,7 +241,7 @@ static int it_post(const char *endpoint, const char *fields, json_t *body_extra,
 	VitaHttpsClient *https = NULL;
 	VitaHttpsRequest request;
 	VitaHttpsResponse response;
-	const char *headers[6];
+	const char *headers[8];
 	int n = 0;
 	int result;
 	const char *ua =
@@ -257,6 +286,7 @@ static int it_post(const char *endpoint, const char *fields, json_t *body_extra,
 		headers[n++] = "X-Youtube-Client-Name: 3";
 		headers[n++] = "X-Youtube-Client-Version: " IT_ANDROID_VERSION;
 	}
+	if (g_visitor_header[0]) headers[n++] = g_visitor_header;
 	headers[n] = NULL;
 
 	memset(buffer, 0, sizeof(*buffer));
@@ -283,6 +313,7 @@ static int it_post(const char *endpoint, const char *fields, json_t *body_extra,
 		buffer_free(buffer);
 		return -1;
 	}
+	harvest_visitor_data((const char *)buffer->data);
 	return 0;
 }
 
@@ -326,40 +357,50 @@ static void try_add_compact_video(json_t *renderer, YtSearchResult *out,
 }
 
 static void walk_search(json_t *node, YtSearchResult *out, int max_out,
-                        int *count)
+                        int *count, char *continuation, size_t cont_size)
 {
-	if (!node || !count || *count >= max_out) return;
+	if (!node || !count) return;
 	if (json_is_object(node)) {
 		const char *key;
 		json_t *value;
 		json_t *compact = json_object_get(node, "compactVideoRenderer");
 		json_t *video = json_object_get(node, "videoRenderer");
-		if (compact) try_add_compact_video(compact, out, max_out, count);
-		if (video) try_add_compact_video(video, out, max_out, count);
+		json_t *ncd = json_object_get(node, "nextContinuationData");
+		if (compact && *count < max_out)
+			try_add_compact_video(compact, out, max_out, count);
+		if (video && *count < max_out)
+			try_add_compact_video(video, out, max_out, count);
+		if (ncd && continuation && cont_size) {
+			const char *token =
+			    json_string_value(json_object_get(ncd, "continuation"));
+			if (token && token[0])
+				copy_field(continuation, cont_size, token);
+		}
 		json_object_foreach(node, key, value) {
 			(void)key;
-			walk_search(value, out, max_out, count);
-			if (*count >= max_out) return;
+			walk_search(value, out, max_out, count, continuation, cont_size);
 		}
 	} else if (json_is_array(node)) {
 		size_t i;
 		for (i = 0; i < json_array_size(node); i++) {
-			walk_search(json_array_get(node, i), out, max_out, count);
-			if (*count >= max_out) return;
+			walk_search(json_array_get(node, i), out, max_out, count,
+			            continuation, cont_size);
 		}
 	}
 }
 
 static int parse_innertube_search(const char *json, YtSearchResult *out,
-                                  int max_out)
+                                  int max_out, char *continuation,
+                                  size_t cont_size)
 {
 	json_t *root;
 	json_error_t error;
 	int count = 0;
 
+	if (continuation && cont_size) continuation[0] = '\0';
 	root = json_loads(json, 0, &error);
 	if (!root) return -1;
-	walk_search(root, out, max_out, &count);
+	walk_search(root, out, max_out, &count, continuation, cont_size);
 	json_decref(root);
 	return count;
 }
@@ -414,7 +455,6 @@ static int parse_innertube_player(const char *json, YtResolvedMedia *out)
 			int h = json_is_integer(height) ? (int)json_integer_value(height)
 			                                : 0;
 			if (!url || !url[0]) continue;
-			/* Prefer muxed progressive MP4 ≤720p for Vita HW decode. */
 			if (mime && !strstr(mime, "mp4") && !strstr(mime, "avc1"))
 				continue;
 			if (h <= 0) {
@@ -448,7 +488,6 @@ static int parse_innertube_player(const char *json, YtResolvedMedia *out)
 			if (strncmp(mime, "audio/", 6) != 0) continue;
 			prefer_mp3 = strstr(mime, "mpeg") || strstr(mime, "mp3");
 			prefer_m4a = strstr(mime, "mp4") || strstr(mime, "mp4a");
-			/* Prefer mp3 (rare), then m4a/aac, then highest bitrate. */
 			if (prefer_mp3 ||
 			    (prefer_m4a && best_audio < 1000000) ||
 			    br > best_audio) {
@@ -464,16 +503,42 @@ static int parse_innertube_player(const char *json, YtResolvedMedia *out)
 		}
 	}
 
+	if (out->video_url[0] && !out->audio_url[0])
+		out->audio_via_progressive = 1;
+
 	json_decref(root);
 	return out->video_url[0] || out->audio_url[0] ? 0 : -1;
+}
+
+static void merge_resolved(YtResolvedMedia *dst, const YtResolvedMedia *src)
+{
+	if (!dst || !src) return;
+	if (!dst->video_url[0] && src->video_url[0]) {
+		copy_field(dst->video_url, sizeof(dst->video_url), src->video_url);
+		copy_field(dst->video_ext, sizeof(dst->video_ext), src->video_ext);
+	}
+	if (!dst->audio_url[0] && src->audio_url[0]) {
+		copy_field(dst->audio_url, sizeof(dst->audio_url), src->audio_url);
+		copy_field(dst->audio_ext, sizeof(dst->audio_ext), src->audio_ext);
+		dst->audio_via_progressive = 0;
+	}
+	if (!dst->title[0] && src->title[0])
+		copy_field(dst->title, sizeof(dst->title), src->title);
+	if (!dst->author[0] && src->author[0])
+		copy_field(dst->author, sizeof(dst->author), src->author);
+	if (dst->length_seconds <= 0 && src->length_seconds > 0)
+		dst->length_seconds = src->length_seconds;
+	if (dst->video_url[0] && !dst->audio_url[0])
+		dst->audio_via_progressive = 1;
 }
 
 int yt_client_search(const char *query, YtSearchResult *out, int max_out,
                      char *detail, size_t detail_size)
 {
 	YtBuffer buffer;
-	json_t *body;
-	int count;
+	char continuation[YT_CONTINUATION_MAX];
+	int total = 0;
+	int page;
 
 	if (!query || !query[0] || !out || max_out <= 0) {
 		set_detail(detail, detail_size, "Empty search");
@@ -484,27 +549,44 @@ int yt_client_search(const char *query, YtSearchResult *out, int max_out,
 		return -1;
 	}
 
-	body = json_pack("{s:s}", "query", query);
-	if (!body) {
-		set_detail(detail, detail_size, "Out of memory");
-		return -1;
-	}
-	if (it_post("search", IT_LIST_FIELDS, body, IT_CLIENT_ANDROID, &buffer,
-	            detail, detail_size) < 0)
-		return -1;
+	continuation[0] = '\0';
+	for (page = 0; page < YT_SEARCH_PAGES && total < max_out; page++) {
+		json_t *body;
+		int got;
+		char next_cont[YT_CONTINUATION_MAX];
 
-	count = parse_innertube_search((const char *)buffer.data, out, max_out);
-	buffer_free(&buffer);
-	if (count < 0) {
-		set_detail(detail, detail_size, "Could not parse search results");
-		return -1;
+		if (page == 0)
+			body = json_pack("{s:s}", "query", query);
+		else
+			body = json_pack("{s:s}", "continuation", continuation);
+		if (!body) {
+			set_detail(detail, detail_size, "Out of memory");
+			return total > 0 ? total : -1;
+		}
+		if (it_post("search", IT_LIST_FIELDS, body, IT_CLIENT_ANDROID, &buffer,
+		            detail, detail_size) < 0)
+			return total > 0 ? total : -1;
+
+		next_cont[0] = '\0';
+		got = parse_innertube_search((const char *)buffer.data, out + total,
+		                             max_out - total, next_cont,
+		                             sizeof(next_cont));
+		buffer_free(&buffer);
+		if (got < 0) {
+			set_detail(detail, detail_size, "Could not parse search results");
+			return total > 0 ? total : -1;
+		}
+		total += got;
+		if (!next_cont[0] || got == 0) break;
+		copy_field(continuation, sizeof(continuation), next_cont);
 	}
-	if (count == 0) {
+
+	if (total == 0) {
 		set_detail(detail, detail_size, "No results");
 		return 0;
 	}
 	set_detail(detail, detail_size, "");
-	return count;
+	return total;
 }
 
 int yt_client_resolve(const char *video_id, YtResolvedMedia *out,
@@ -512,6 +594,8 @@ int yt_client_resolve(const char *video_id, YtResolvedMedia *out,
 {
 	YtBuffer buffer;
 	json_t *body;
+	YtResolvedMedia partial;
+	int have = 0;
 
 	if (!looks_like_video_id(video_id) || !out) {
 		set_detail(detail, detail_size, "Invalid video id");
@@ -522,6 +606,9 @@ int yt_client_resolve(const char *video_id, YtResolvedMedia *out,
 		return -1;
 	}
 
+	memset(out, 0, sizeof(*out));
+
+	/* ANDROID first: progressive muxed MP4 (itag 18) works without VR. */
 	body = json_pack("{s:s,s:b,s:b}",
 	                 "videoId", video_id,
 	                 "contentCheckOk", 1,
@@ -530,18 +617,152 @@ int yt_client_resolve(const char *video_id, YtResolvedMedia *out,
 		set_detail(detail, detail_size, "Out of memory");
 		return -1;
 	}
-	if (it_post("player", NULL, body, IT_CLIENT_ANDROID_VR, &buffer, detail,
-	            detail_size) < 0)
-		return -1;
-
-	if (parse_innertube_player((const char *)buffer.data, out) != 0) {
+	if (it_post("player", NULL, body, IT_CLIENT_ANDROID, &buffer, detail,
+	            detail_size) == 0) {
+		if (parse_innertube_player((const char *)buffer.data, &partial) == 0) {
+			merge_resolved(out, &partial);
+			have = 1;
+		}
 		buffer_free(&buffer);
+	}
+
+	/* ANDROID_VR fills adaptive audio URLs when the bot-gate is open. */
+	if (!out->audio_url[0]) {
+		body = json_pack("{s:s,s:b,s:b}",
+		                 "videoId", video_id,
+		                 "contentCheckOk", 1,
+		                 "racyCheckOk", 1);
+		if (body &&
+		    it_post("player", NULL, body, IT_CLIENT_ANDROID_VR, &buffer,
+		            detail, detail_size) == 0) {
+			if (parse_innertube_player((const char *)buffer.data,
+			                           &partial) == 0) {
+				merge_resolved(out, &partial);
+				have = 1;
+			}
+			buffer_free(&buffer);
+		}
+	}
+
+	if (!have || (!out->video_url[0] && !out->audio_url[0])) {
 		set_detail(detail, detail_size, "Could not resolve media streams");
 		return -1;
 	}
-	buffer_free(&buffer);
+	if (out->video_url[0] && !out->audio_url[0])
+		out->audio_via_progressive = 1;
 	set_detail(detail, detail_size, "");
 	return 0;
+}
+
+int yt_client_remux_audio_m4a(const char *src_mp4, const char *dst_m4a,
+                              char *detail, size_t detail_size)
+{
+	AVFormatContext *in = NULL;
+	AVFormatContext *out = NULL;
+	AVPacket *pkt = NULL;
+	int audio_index = -1;
+	int out_index = -1;
+	unsigned i;
+	int ret;
+
+	if (!src_mp4 || !dst_m4a) {
+		set_detail(detail, detail_size, "Invalid remux paths");
+		return -1;
+	}
+
+	ret = avformat_open_input(&in, src_mp4, NULL, NULL);
+	if (ret < 0) {
+		set_detail(detail, detail_size, "Could not open downloaded video");
+		return ret;
+	}
+	ret = avformat_find_stream_info(in, NULL);
+	if (ret < 0) {
+		set_detail(detail, detail_size, "Could not read media info");
+		goto fail;
+	}
+	for (i = 0; i < in->nb_streams; i++) {
+		if (in->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
+			audio_index = (int)i;
+			break;
+		}
+	}
+	if (audio_index < 0) {
+		set_detail(detail, detail_size, "No audio track in stream");
+		ret = -1;
+		goto fail;
+	}
+
+	ret = avformat_alloc_output_context2(&out, NULL, "mp4", dst_m4a);
+	if (ret < 0 || !out) {
+		set_detail(detail, detail_size, "Could not create M4A output");
+		ret = -1;
+		goto fail;
+	}
+	{
+		AVStream *in_st = in->streams[audio_index];
+		AVStream *out_st = avformat_new_stream(out, NULL);
+		if (!out_st) {
+			set_detail(detail, detail_size, "Out of memory");
+			ret = -1;
+			goto fail;
+		}
+		ret = avcodec_parameters_copy(out_st->codecpar, in_st->codecpar);
+		if (ret < 0) {
+			set_detail(detail, detail_size, "Could not copy audio codec");
+			goto fail;
+		}
+		out_st->codecpar->codec_tag = 0;
+		out_st->time_base = in_st->time_base;
+		out_index = out_st->index;
+	}
+
+	if (!(out->oformat->flags & AVFMT_NOFILE)) {
+		ret = avio_open(&out->pb, dst_m4a, AVIO_FLAG_WRITE);
+		if (ret < 0) {
+			set_detail(detail, detail_size, "Could not write M4A file");
+			goto fail;
+		}
+	}
+	ret = avformat_write_header(out, NULL);
+	if (ret < 0) {
+		set_detail(detail, detail_size, "Could not write M4A header");
+		goto fail;
+	}
+
+	pkt = av_packet_alloc();
+	if (!pkt) {
+		set_detail(detail, detail_size, "Out of memory");
+		ret = -1;
+		goto fail;
+	}
+	while ((ret = av_read_frame(in, pkt)) >= 0) {
+		if (pkt->stream_index != audio_index) {
+			av_packet_unref(pkt);
+			continue;
+		}
+		pkt->stream_index = out_index;
+		av_packet_rescale_ts(pkt, in->streams[audio_index]->time_base,
+		                     out->streams[out_index]->time_base);
+		ret = av_interleaved_write_frame(out, pkt);
+		av_packet_unref(pkt);
+		if (ret < 0) {
+			set_detail(detail, detail_size, "Audio remux failed");
+			goto fail;
+		}
+	}
+	if (ret == AVERROR_EOF) ret = 0;
+	av_write_trailer(out);
+	set_detail(detail, detail_size, "");
+
+fail:
+	if (pkt) av_packet_free(&pkt);
+	if (out) {
+		if (out->pb && !(out->oformat->flags & AVFMT_NOFILE))
+			avio_closep(&out->pb);
+		avformat_free_context(out);
+	}
+	if (in) avformat_close_input(&in);
+	return ret;
 }
 
 void yt_client_safe_filename(const char *title, char *out, size_t out_size)

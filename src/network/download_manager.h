@@ -10,7 +10,7 @@ typedef struct {
 	VtNetworkSource source;
 	VtNetworkCredential credential;
 	char remote_path[VT_NETWORK_PATH_MAX];
-	char url[2048];
+	char url[4096];
 	char preferred_name[128];
 	char destination_directory[VT_NETWORK_PATH_MAX];
 	char destination[VT_NETWORK_PATH_MAX];
