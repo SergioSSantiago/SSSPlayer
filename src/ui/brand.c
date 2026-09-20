@@ -20,6 +20,10 @@
 
 #include <vita_https.h>
 
+#ifndef SSSPLAYER_VERSION_LABEL
+#define SSSPLAYER_VERSION_LABEL "0.0.0"
+#endif
+
 #define SCREEN_WIDTH  960
 #define SCREEN_HEIGHT 544
 
@@ -27,7 +31,6 @@
 #define HEADER_ICON_X 18
 #define HEADER_ICON_Y ((UI_BRAND_HEADER_HEIGHT - HEADER_ICON_SIZE) / 2)
 #define HEADER_NAME_X (HEADER_ICON_X + HEADER_ICON_SIZE + 14)
-#define HEADER_WORDMARK "SSSPlayer by SergioSSantiago"
 
 /* --- Header layout -------------------------------------------------------
  *
@@ -503,12 +506,15 @@ static void draw_header(const char *query, int editing,
 
 	vita2d_font *font = ui_runtime_font(UI_FONT_BODY);
 	if (font) {
+		char wordmark[80];
 		vita2d_font *display = ui_runtime_font(UI_FONT_DISPLAY);
 		vita2d_font *title_font = display ? display : font;
 		unsigned title_size = display ? UI_FONT_DISPLAY : UI_FONT_BODY;
-			while (title_size > UI_FONT_SMALL &&
-			       ui_font_text_width(title_font, title_size, HEADER_WORDMARK) >
-			           HEADER_NAME_MAX_W) {
+		snprintf(wordmark, sizeof(wordmark),
+		         "SSSPlayer by SergioSSantiago  %s", SSSPLAYER_VERSION_LABEL);
+		while (title_size > UI_FONT_SMALL &&
+		       ui_font_text_width(title_font, title_size, wordmark) >
+		           HEADER_NAME_MAX_W) {
 			title_size--;
 		}
 		float title_baseline =
@@ -516,7 +522,7 @@ static void draw_header(const char *query, int editing,
 		ui_font_draw_text(title_font, HEADER_NAME_X,
 		                       title_baseline,
 		                       COLOR_TEXT, title_size,
-		                       HEADER_WORDMARK);
+		                       wordmark);
 		}
 
 	/* Right corner: Wi-Fi, clock, battery (battery outermost). Values come

@@ -420,7 +420,6 @@ static int parse_innertube_player(const char *json, YtResolvedMedia *out)
 	json_t *adaptive;
 	json_t *playability;
 	size_t i;
-	int best_h = -1;
 	int best_audio = -1;
 	const char *status;
 
@@ -451,14 +450,19 @@ static int parse_innertube_player(const char *json, YtResolvedMedia *out)
 	sd = json_object_get(root, "streamingData");
 	formats = sd ? json_object_get(sd, "formats") : NULL;
 	if (json_is_array(formats)) {
+		int best_score = -1;
 		for (i = 0; i < json_array_size(formats); i++) {
 			json_t *f = json_array_get(formats, i);
 			const char *url = json_string_value(json_object_get(f, "url"));
 			const char *mime =
 			    json_string_value(json_object_get(f, "mimeType"));
 			json_t *height = json_object_get(f, "height");
+			json_t *itag_node = json_object_get(f, "itag");
 			int h = json_is_integer(height) ? (int)json_integer_value(height)
 			                                : 0;
+			int itag = json_is_integer(itag_node)
+			         ? (int)json_integer_value(itag_node) : 0;
+			int score;
 			if (!url || !url[0]) continue;
 			/* Vita hardware decode needs H.264 (avc1). Reject AV1/VP9. */
 			if (!mime || !strstr(mime, "avc1")) continue;
@@ -467,9 +471,14 @@ static int parse_innertube_player(const char *json, YtResolvedMedia *out)
 				    json_string_value(json_object_get(f, "qualityLabel"));
 				if (label) sscanf(label, "%dp", &h);
 			}
-			if (h > 720) continue;
-			if (h >= best_h) {
-				best_h = h;
+			/* Cap at 360p: 720p High-profile progressive often opens then
+			 * dies on sceVideodec after the first GOP. Prefer itag 18. */
+			if (h > 360) continue;
+			if (itag == 18) score = 10000;
+			else if (h > 0) score = 1000 + h;
+			else score = 1;
+			if (score > best_score) {
+				best_score = score;
 				copy_field(out->video_url, sizeof(out->video_url), url);
 				snprintf(out->video_ext, sizeof(out->video_ext), "mp4");
 			}
@@ -782,9 +791,15 @@ int yt_client_file_has_h264(const char *path)
 		return 0;
 	}
 	for (i = 0; i < fmt->nb_streams; i++) {
-		if (fmt->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO &&
-		    fmt->streams[i]->codecpar->codec_id == AV_CODEC_ID_H264) {
-			found = 1;
+		AVCodecParameters *par = fmt->streams[i]->codecpar;
+		if (par->codec_type == AVMEDIA_TYPE_VIDEO &&
+		    par->codec_id == AV_CODEC_ID_H264) {
+			/* Vita HW path is reliable around 360p progressive; taller
+			 * Progressive High files often die after the first second. */
+			if (par->height > 0 && par->height <= 480)
+				found = 1;
+			else if (par->height <= 0)
+				found = 1;
 			break;
 		}
 	}

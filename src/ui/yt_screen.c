@@ -257,7 +257,7 @@ static int run_yt_download(const char *url, const char *filename,
 				sceIoRemove(job.destination);
 				ui_message_show(
 				    "Unsupported video",
-				    "File has no H.264 track (need progressive MP4).",
+				    "Need progressive 360p H.264 MP4 (itag 18). Re-download.",
 				    3600);
 				return -1;
 			}

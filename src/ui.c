@@ -26,6 +26,11 @@
 #include "video_bridge.h"
 #include "equalizer.h"
 #include "ui/touch.h"
+#include "system/app_update.h"
+
+#ifndef SSSPLAYER_VERSION_LABEL
+#define SSSPLAYER_VERSION_LABEL "0.0.0"
+#endif
 
 /* ── Settings persistence ────────────────────────────────────────────────── */
 #define SETTINGS_PATH    "ux0:data/SSSPlayer/settings.dat"
@@ -671,7 +676,7 @@ void ui_handle_input(UIState *ui,
 
     /* ── SETTINGS ─────────────────────────────────────────────────────── */
     case UI_SCREEN_SETTINGS: {
-        const int NUM_SETTINGS = 9;
+        const int NUM_SETTINGS = 10;
         if (nav_pressed & SCE_CTRL_UP) {
             if (ui->settings.settings_selected > 0)
                 ui->settings.settings_selected--;
@@ -722,6 +727,9 @@ void ui_handle_input(UIState *ui,
                     sss_video_browse_youtube();
                     break;
                 case 8:
+                    sss_app_update_check_manual();
+                    break;
+                case 9:
                     ((UIState *)ui)->request_exit = true;
                     break;
             }
@@ -1374,11 +1382,13 @@ static void draw_header(const UIState *ui)
     /* Background bar */
     vita2d_draw_rectangle(0, 0, SCREEN_WIDTH, BAR_HEIGHT, COLOR_ACCENT);
 
-    /* App name + developer credit */
-    noto_draw_text(12, 28,
-                         COLOR_TEXT, ui->font_medium.size,
-                         "SSSPlayer by SergioSSantiago");
-
+    /* App name + developer credit + version */
+    {
+        char title[96];
+        snprintf(title, sizeof(title), "SSSPlayer by SergioSSantiago  %s",
+                 SSSPLAYER_VERSION_LABEL);
+        noto_draw_text(12, 28, COLOR_TEXT, ui->font_medium.size, title);
+    }
     /* Current time */
     SceDateTime now_dt;
     sceRtcGetCurrentClockLocalTime(&now_dt);
@@ -2246,9 +2256,10 @@ void ui_draw_settings(const UIState *ui)
         { "Video Library" },
         { "Network Videos" },
         { "YouTube" },
+        { "Check for updates" },
         { "Exit SSSPlayer" },
     };
-    int num_rows = 9;
+    int num_rows = 10;
 
     int sy = BAR_HEIGHT + 10;
     noto_draw_text(12, sy + 28,
@@ -2299,7 +2310,8 @@ void ui_draw_settings(const UIState *ui)
             case 5:
             case 6:
             case 7:
-            case 8: val_str[0] = '\0'; break;
+            case 8:
+            case 9: val_str[0] = '\0'; break;
             default: val_str[0] = '\0'; break;
         }
         {
@@ -2315,10 +2327,12 @@ void ui_draw_settings(const UIState *ui)
 
     if (ui->settings.settings_selected == 4)
         draw_footer(ui, "[DUD]Select  [DLR]Theme  [X]Apply  [O]Back");
-    else if (ui->settings.settings_selected == 5)
+    else if (ui->settings.settings_selected == 9)
         draw_footer(ui, "[DUD]Select  [X]Exit  [O]Back");
+    else if (ui->settings.settings_selected == 8)
+        draw_footer(ui, "[DUD]Select  [X]Check  [O]Back");
     else
-        draw_footer(ui, "[DUD]Select  [X]Toggle  [O]Back");
+        draw_footer(ui, "[DUD]Select  [X]Open  [O]Back");
 }
 
 /* ── ui_draw_playlist_list ───────────────────────────────────────────────── */

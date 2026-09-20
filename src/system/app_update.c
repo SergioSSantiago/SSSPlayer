@@ -299,3 +299,38 @@ void sss_app_update_check_on_launch(void) {
 	if (!prompt_install(info.tag)) return;
 	install_update(&info);
 }
+
+void sss_app_update_check_manual(void) {
+	UpdateInfo info;
+
+	vt_preferences_init();
+	vt_i18n_init();
+	if (ui_runtime_attach_existing() < 0) {
+		if (ui_runtime_init() < 0) {
+			ui_message_show(vt_i18n_str(VT_STR_UPDATE_OFFLINE_TITLE),
+			                vt_i18n_str(VT_STR_UPDATE_OFFLINE_DETAIL), 2800);
+			return;
+		}
+	}
+	ui_runtime_load_boot_assets();
+	ui_runtime_load_assets();
+	ui_message_show(vt_i18n_str(VT_STR_UPDATE_CHECKING),
+	                SSSPLAYER_VERSION_LABEL, 900);
+	if (vita_https_init() < 0 || !vita_https_is_connected() ||
+	    fetch_latest(&info) < 0) {
+		ui_message_show(vt_i18n_str(VT_STR_UPDATE_OFFLINE_TITLE),
+		                vt_i18n_str(VT_STR_UPDATE_OFFLINE_DETAIL), 3000);
+		return;
+	}
+	if (!version_is_newer(info.tag, SSSPLAYER_VERSION_LABEL)) {
+		char detail[96];
+		snprintf(detail, sizeof(detail),
+		         vt_i18n_str(VT_STR_UPDATE_UP_TO_DATE_DETAIL),
+		         SSSPLAYER_VERSION_LABEL);
+		ui_message_show(vt_i18n_str(VT_STR_UPDATE_UP_TO_DATE_TITLE), detail,
+		                2800);
+		return;
+	}
+	if (!prompt_install(info.tag)) return;
+	install_update(&info);
+}

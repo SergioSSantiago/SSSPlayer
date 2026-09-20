@@ -146,12 +146,19 @@ static int download_url(VtDownloadJob *job, const char *part) {
 	int result = -1;
 	const int max_attempts = 3;
 
+	const char *yt_ua =
+	    "com.google.android.youtube/21.26.364 (Linux; U; Android 11) gzip";
+	int is_youtube = strstr(job->url, "googlevideo.com") ||
+	                 strstr(job->url, "youtube.com");
+
 	memset(&config, 0, sizeof(config));
 	/* Plain HTTP is an explicit direct-download choice. vita-https still keeps
 	 * HTTPS verification enabled and forbids HTTPS-to-HTTP redirect downgrades. */
 	config.allow_http = 1;
-	config.user_agent =
-	    "Mozilla/5.0 (PlayStation Vita) SSSPlayer/1.0 AppleWebKit/531.22.8";
+	/* googlevideo URLs are signed for the InnerTube ANDROID client — a Vita UA
+	 * often yields truncated/corrupt bodies that look like H.264 for ~1s. */
+	config.user_agent = is_youtube ? yt_ua
+	    : "Mozilla/5.0 (PlayStation Vita) SSSPlayer/1.0 AppleWebKit/531.22.8";
 	/* YouTube progressive files are large; do not apply a short overall
 	 * CURLOPT_TIMEOUT. Detect dead links with a generous low-speed window. */
 	config.connect_timeout_ms = 30000;
@@ -160,7 +167,7 @@ static int download_url(VtDownloadJob *job, const char *part) {
 	config.low_speed_seconds = 120;
 
 	headers[header_n++] = "Accept: */*";
-	if (strstr(job->url, "googlevideo.com") || strstr(job->url, "youtube.com"))
+	if (is_youtube)
 		headers[header_n++] = "Referer: https://www.youtube.com/";
 	headers[header_n] = NULL;
 
@@ -215,6 +222,14 @@ static int download_url(VtDownloadJob *job, const char *part) {
 				snprintf(job->detail, sizeof(job->detail), "%s",
 				         job->cancel ? "Download cancelled"
 				                     : vita_https_error_string(result));
+			result = -1;
+		} else if (response.content_length > 0 &&
+		           writer.transferred + 8192 <
+		               (int64_t)response.content_length) {
+			snprintf(job->detail, sizeof(job->detail),
+			         "Incomplete download (%lld / %lld bytes)",
+			         (long long)writer.transferred,
+			         (long long)response.content_length);
 			result = -1;
 		} else {
 			result = 0;

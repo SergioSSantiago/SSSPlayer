@@ -56,11 +56,12 @@ static int http_url_open_cancelable(void *opaque, VtDecoderStreamHandle *out,
 	if (!stream) return -1;
 
 	memset(&config, 0, sizeof(config));
-	config.user_agent = "Mozilla/5.0 (PlayStation Vita) SSSPlayer/1.0";
-	config.connect_timeout_ms = 5000;
-	config.request_timeout_ms = 12000;
-	config.low_speed_bytes_per_second = 1024;
-	config.low_speed_seconds = 5;
+	config.user_agent =
+	    "com.google.android.youtube/21.26.364 (Linux; U; Android 11) gzip";
+	config.connect_timeout_ms = 15000;
+	config.request_timeout_ms = 0;
+	config.low_speed_bytes_per_second = 256;
+	config.low_speed_seconds = 60;
 	config.allow_http = 1;
 	stream->client = vita_https_client_create(&config);
 	if (!stream->client) {

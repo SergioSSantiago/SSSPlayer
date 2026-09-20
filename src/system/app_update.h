@@ -7,4 +7,8 @@
  * (no update / offline) within a few seconds. */
 void sss_app_update_check_on_launch(void);
 
+/* Manual Settings entry: always reports online status, up-to-date, or offers
+ * install when a newer release exists. */
+void sss_app_update_check_manual(void);
+
 #endif
