@@ -11,7 +11,8 @@ extern "C" {
 #define YT_ID_MAX 24
 #define YT_TITLE_MAX 160
 #define YT_AUTHOR_MAX 96
-#define YT_URL_MAX 2048
+/* googlevideo playback URLs regularly exceed 2 KB once signed. */
+#define YT_URL_MAX 4096
 
 typedef struct {
 	char id[YT_ID_MAX];
@@ -31,12 +32,13 @@ typedef struct {
 	int length_seconds;
 } YtResolvedMedia;
 
-/* Search public Invidious/Piped mirrors. Returns count (>=0) or <0 on error.
- * detail may receive a short human-readable reason. */
+/* Search via YouTube InnerTube (ANDROID client). Returns count (>=0) or <0
+ * on error. detail may receive a short human-readable reason. */
 int yt_client_search(const char *query, YtSearchResult *out, int max_out,
                      char *detail, size_t detail_size);
 
-/* Resolve progressive video + best audio stream URLs for playback/download. */
+/* Resolve progressive video + best audio stream URLs (ANDROID_VR client
+ * returns plain signed URLs without a JS cipher). */
 int yt_client_resolve(const char *video_id, YtResolvedMedia *out,
                       char *detail, size_t detail_size);
 

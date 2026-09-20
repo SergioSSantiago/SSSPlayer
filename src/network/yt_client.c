@@ -1,3 +1,9 @@
+/*
+ * YouTube client via InnerTube (same approach as ViTube / yt-dlp Android
+ * clients). Search uses the ANDROID client; stream resolve uses ANDROID_VR
+ * so progressive and adaptive audio URLs arrive already signed (no JS `n`
+ * cipher). GPL-3.0 — approach inspired by shorelight82/vitube-vpk.
+ */
 #include "network/yt_client.h"
 
 #include <ctype.h>
@@ -8,7 +14,23 @@
 #include <jansson.h>
 #include <vita_https.h>
 
-#define YT_RESPONSE_MAX (512 * 1024)
+#define YT_RESPONSE_MAX (1024 * 1024)
+
+#define IT_BASE "https://youtubei.googleapis.com/youtubei/v1/"
+
+#define IT_ANDROID_VERSION "21.26.364"
+#define IT_ANDROID_UA \
+	"com.google.android.youtube/" IT_ANDROID_VERSION \
+	" (Linux; U; Android 11) gzip"
+
+/* ANDROID_VR returns plain signed adaptive audio URLs; ANDROID often omits
+ * them (cipher / empty). Progressive itag 18 still comes through. */
+#define IT_VR_VERSION "1.60.19"
+#define IT_VR_UA \
+	"com.google.android.apps.youtube.vr.oculus/" IT_VR_VERSION \
+	" (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip"
+
+#define IT_LIST_FIELDS "contents,continuationContents"
 
 typedef struct {
 	unsigned char *data;
@@ -16,20 +38,6 @@ typedef struct {
 	size_t capacity;
 	size_t limit;
 } YtBuffer;
-
-static const char *const k_piped_apis[] = {
-	"https://pipedapi.kavin.rocks",
-	"https://pipedapi.adminforge.de",
-	"https://pipedapi.nosebs.ru",
-	NULL
-};
-
-static const char *const k_invidious_apis[] = {
-	"https://inv.nadeko.net",
-	"https://invidious.fdn.fr",
-	"https://iv.ggtyler.dev",
-	NULL
-};
 
 static size_t buffer_write(const void *contents, size_t bytes, void *opaque)
 {
@@ -64,47 +72,6 @@ static void set_detail(char *detail, size_t detail_size, const char *text)
 	snprintf(detail, detail_size, "%s", text ? text : "");
 }
 
-static int http_get_json(const char *url, YtBuffer *buffer, char *detail,
-                         size_t detail_size)
-{
-	VitaHttpsClientConfig config;
-	VitaHttpsClient *client;
-	VitaHttpsRequest request;
-	VitaHttpsResponse response;
-	int result;
-
-	memset(&config, 0, sizeof(config));
-	config.user_agent = "Mozilla/5.0 (PlayStation Vita) SSSPlayer/1.0";
-	config.connect_timeout_ms = 8000;
-	config.request_timeout_ms = 20000;
-	config.allow_http = 0;
-	client = vita_https_client_create(&config);
-	if (!client) {
-		set_detail(detail, detail_size, "HTTPS unavailable");
-		return -1;
-	}
-
-	memset(buffer, 0, sizeof(*buffer));
-	buffer->limit = YT_RESPONSE_MAX;
-	memset(&request, 0, sizeof(request));
-	request.method = "GET";
-	request.url = url;
-	request.write = buffer_write;
-	request.write_opaque = buffer;
-	memset(&response, 0, sizeof(response));
-	result = vita_https_perform(client, &request, &response);
-	vita_https_client_destroy(client);
-	if (result < 0 || response.status_code < 200 || response.status_code >= 300 ||
-	    !buffer->data || !buffer->size) {
-		set_detail(detail, detail_size,
-		           result < 0 ? vita_https_error_string(result)
-		                      : "Mirror returned an error");
-		buffer_free(buffer);
-		return -1;
-	}
-	return 0;
-}
-
 static void copy_field(char *dst, size_t dst_size, const char *src)
 {
 	if (!dst || !dst_size) return;
@@ -120,7 +87,7 @@ static int looks_like_video_id(const char *id)
 	size_t n;
 	if (!id) return 0;
 	n = strlen(id);
-	if (n < 6 || n >= YT_ID_MAX) return 0;
+	if (n != 11) return 0;
 	for (; *id; id++) {
 		if (!isalnum((unsigned char)*id) && *id != '-' && *id != '_')
 			return 0;
@@ -128,95 +95,54 @@ static int looks_like_video_id(const char *id)
 	return 1;
 }
 
-static int parse_piped_search(const char *json, YtSearchResult *out, int max_out)
+static void json_text_into(json_t *node, char *out, size_t out_size)
 {
-	json_t *root;
-	json_t *items;
-	json_error_t error;
+	const char *simple;
+	json_t *runs;
 	size_t i;
-	int count = 0;
+	size_t n = 0;
 
-	root = json_loads(json, 0, &error);
-	if (!root) return -1;
-	items = json_is_array(root) ? root : json_object_get(root, "items");
-	if (!json_is_array(items)) {
-		json_decref(root);
-		return -1;
+	if (!out || !out_size) return;
+	out[0] = '\0';
+	if (!node) return;
+	simple = json_string_value(json_object_get(node, "simpleText"));
+	if (simple) {
+		snprintf(out, out_size, "%s", simple);
+		return;
 	}
-	for (i = 0; i < json_array_size(items) && count < max_out; i++) {
-		json_t *item = json_array_get(items, i);
-		const char *type = json_string_value(json_object_get(item, "type"));
-		const char *url = json_string_value(json_object_get(item, "url"));
-		const char *title = json_string_value(json_object_get(item, "title"));
-		const char *uploader = json_string_value(json_object_get(item, "uploaderName"));
-		json_t *duration = json_object_get(item, "duration");
-		json_t *views = json_object_get(item, "views");
-		const char *id = NULL;
-		YtSearchResult *dst;
-
-		if (type && strcmp(type, "stream") != 0 && strcmp(type, "video") != 0)
-			continue;
-		if (url && strstr(url, "watch?v="))
-			id = strstr(url, "watch?v=") + 8;
-		else if (url && url[0] == '/')
-			id = url + 1;
-		if (!looks_like_video_id(id)) continue;
-
-		dst = &out[count++];
-		memset(dst, 0, sizeof(*dst));
-		copy_field(dst->id, sizeof(dst->id), id);
-		/* Strip query junk from id if any */
-		{
-			char *q = strchr(dst->id, '&');
-			if (q) *q = '\0';
-		}
-		copy_field(dst->title, sizeof(dst->title), title ? title : "Untitled");
-		copy_field(dst->author, sizeof(dst->author), uploader ? uploader : "");
-		if (json_is_integer(duration))
-			dst->length_seconds = (int)json_integer_value(duration);
-		if (json_is_integer(views))
-			dst->view_count = (int)json_integer_value(views);
+	runs = json_object_get(node, "runs");
+	if (!json_is_array(runs)) {
+		simple = json_string_value(node);
+		if (simple) snprintf(out, out_size, "%s", simple);
+		return;
 	}
-	json_decref(root);
-	return count;
+	for (i = 0; i < json_array_size(runs); i++) {
+		const char *piece =
+		    json_string_value(json_object_get(json_array_get(runs, i), "text"));
+		if (!piece) continue;
+		n += (size_t)snprintf(out + n, out_size - n, "%s", piece);
+		if (n >= out_size - 1) break;
+	}
 }
 
-static int parse_invidious_search(const char *json, YtSearchResult *out, int max_out)
+static int parse_duration_text(const char *text)
 {
-	json_t *root;
-	json_error_t error;
-	size_t i;
-	int count = 0;
-
-	root = json_loads(json, 0, &error);
-	if (!root || !json_is_array(root)) {
-		if (root) json_decref(root);
-		return -1;
+	int parts[3] = {0, 0, 0};
+	int n = 0;
+	const char *p = text;
+	if (!text || !text[0]) return 0;
+	while (*p && n < 3) {
+		if (!isdigit((unsigned char)*p)) {
+			p++;
+			continue;
+		}
+		parts[n++] = (int)strtol(p, (char **)&p, 10);
+		if (*p == ':') p++;
 	}
-	for (i = 0; i < json_array_size(root) && count < max_out; i++) {
-		json_t *item = json_array_get(root, i);
-		const char *type = json_string_value(json_object_get(item, "type"));
-		const char *id = json_string_value(json_object_get(item, "videoId"));
-		const char *title = json_string_value(json_object_get(item, "title"));
-		const char *author = json_string_value(json_object_get(item, "author"));
-		json_t *length = json_object_get(item, "lengthSeconds");
-		json_t *views = json_object_get(item, "viewCount");
-		YtSearchResult *dst;
-
-		if (type && strcmp(type, "video") != 0) continue;
-		if (!looks_like_video_id(id)) continue;
-		dst = &out[count++];
-		memset(dst, 0, sizeof(*dst));
-		copy_field(dst->id, sizeof(dst->id), id);
-		copy_field(dst->title, sizeof(dst->title), title ? title : "Untitled");
-		copy_field(dst->author, sizeof(dst->author), author ? author : "");
-		if (json_is_integer(length))
-			dst->length_seconds = (int)json_integer_value(length);
-		if (json_is_integer(views))
-			dst->view_count = (int)json_integer_value(views);
-	}
-	json_decref(root);
-	return count;
+	if (n == 1) return parts[0];
+	if (n == 2) return parts[0] * 60 + parts[1];
+	if (n == 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+	return 0;
 }
 
 static int pick_ext_from_mime(const char *mime, const char *fallback,
@@ -225,9 +151,11 @@ static int pick_ext_from_mime(const char *mime, const char *fallback,
 	if (mime) {
 		if (strstr(mime, "audio/mpeg") || strstr(mime, "audio/mp3"))
 			return snprintf(out, out_size, "mp3") > 0;
-		if (strstr(mime, "audio/mp4") || strstr(mime, "audio/aac"))
+		if (strstr(mime, "audio/mp4") || strstr(mime, "audio/aac") ||
+		    strstr(mime, "mp4a"))
 			return snprintf(out, out_size, "m4a") > 0;
-		if (strstr(mime, "audio/webm") || strstr(mime, "audio/opus"))
+		if (strstr(mime, "audio/webm") || strstr(mime, "audio/opus") ||
+		    strstr(mime, "opus"))
 			return snprintf(out, out_size, "webm") > 0;
 		if (strstr(mime, "video/mp4"))
 			return snprintf(out, out_size, "mp4") > 0;
@@ -237,164 +165,301 @@ static int pick_ext_from_mime(const char *mime, const char *fallback,
 	return snprintf(out, out_size, "%s", fallback ? fallback : "bin") > 0;
 }
 
-static int parse_piped_streams(const char *json, YtResolvedMedia *out)
+typedef enum {
+	IT_CLIENT_ANDROID = 0,
+	IT_CLIENT_ANDROID_VR
+} ItClient;
+
+static json_t *client_context(ItClient client)
+{
+	if (client == IT_CLIENT_ANDROID_VR) {
+		return json_pack(
+		    "{s:{s:s,s:s,s:s,s:s,s:i,s:s,s:s,s:s,s:s,s:s}}",
+		    "client",
+		    "clientName", "ANDROID_VR",
+		    "clientVersion", IT_VR_VERSION,
+		    "deviceMake", "Oculus",
+		    "deviceModel", "Quest 3",
+		    "androidSdkVersion", 32,
+		    "userAgent", IT_VR_UA,
+		    "osName", "Android",
+		    "osVersion", "12L",
+		    "hl", "en",
+		    "gl", "US");
+	}
+	return json_pack(
+	    "{s:{s:s,s:s,s:i,s:s,s:s,s:s,s:s,s:s}}",
+	    "client",
+	    "clientName", "ANDROID",
+	    "clientVersion", IT_ANDROID_VERSION,
+	    "androidSdkVersion", 30,
+	    "userAgent", IT_ANDROID_UA,
+	    "osName", "Android",
+	    "osVersion", "11",
+	    "hl", "en",
+	    "gl", "US");
+}
+
+static int it_post(const char *endpoint, const char *fields, json_t *body_extra,
+                   ItClient client, YtBuffer *buffer, char *detail,
+                   size_t detail_size)
+{
+	json_t *body = body_extra ? body_extra : json_object();
+	char *payload;
+	char url[640];
+	char *escaped_fields = NULL;
+	VitaHttpsClientConfig config;
+	VitaHttpsClient *https = NULL;
+	VitaHttpsRequest request;
+	VitaHttpsResponse response;
+	const char *headers[6];
+	int n = 0;
+	int result;
+	const char *ua =
+	    client == IT_CLIENT_ANDROID_VR ? IT_VR_UA : IT_ANDROID_UA;
+
+	json_object_set_new(body, "context", client_context(client));
+	payload = json_dumps(body, JSON_COMPACT);
+	json_decref(body);
+	if (!payload) {
+		set_detail(detail, detail_size, "Out of memory");
+		return -1;
+	}
+
+	if (fields && fields[0]) {
+		escaped_fields = vita_https_escape(fields, strlen(fields));
+		snprintf(url, sizeof(url), "%s%s?prettyPrint=false&fields=%s",
+		         IT_BASE, endpoint,
+		         escaped_fields ? escaped_fields : "");
+	} else {
+		snprintf(url, sizeof(url), "%s%s?prettyPrint=false", IT_BASE,
+		         endpoint);
+	}
+
+	memset(&config, 0, sizeof(config));
+	config.user_agent = ua;
+	config.connect_timeout_ms = 10000;
+	config.request_timeout_ms = 30000;
+	config.allow_http = 0;
+	https = vita_https_client_create(&config);
+	if (!https) {
+		free(payload);
+		vita_https_free(escaped_fields);
+		set_detail(detail, detail_size, "HTTPS unavailable");
+		return -1;
+	}
+
+	headers[n++] = "Content-Type: application/json";
+	if (client == IT_CLIENT_ANDROID_VR) {
+		headers[n++] = "X-Youtube-Client-Name: 28";
+		headers[n++] = "X-Youtube-Client-Version: " IT_VR_VERSION;
+	} else {
+		headers[n++] = "X-Youtube-Client-Name: 3";
+		headers[n++] = "X-Youtube-Client-Version: " IT_ANDROID_VERSION;
+	}
+	headers[n] = NULL;
+
+	memset(buffer, 0, sizeof(*buffer));
+	buffer->limit = YT_RESPONSE_MAX;
+	memset(&request, 0, sizeof(request));
+	request.method = "POST";
+	request.url = url;
+	request.headers = headers;
+	request.body = payload;
+	request.body_size = strlen(payload);
+	request.write = buffer_write;
+	request.write_opaque = buffer;
+	memset(&response, 0, sizeof(response));
+	result = vita_https_perform(https, &request, &response);
+	vita_https_client_destroy(https);
+	free(payload);
+	vita_https_free(escaped_fields);
+
+	if (result < 0 || response.status_code < 200 ||
+	    response.status_code >= 300 || !buffer->data || !buffer->size) {
+		set_detail(detail, detail_size,
+		           result < 0 ? vita_https_error_string(result)
+		                      : "YouTube API returned an error");
+		buffer_free(buffer);
+		return -1;
+	}
+	return 0;
+}
+
+static int already_have_id(const YtSearchResult *out, int count, const char *id)
+{
+	int i;
+	for (i = 0; i < count; i++) {
+		if (strcmp(out[i].id, id) == 0) return 1;
+	}
+	return 0;
+}
+
+static void try_add_compact_video(json_t *renderer, YtSearchResult *out,
+                                  int max_out, int *count)
+{
+	const char *id;
+	char title[YT_TITLE_MAX];
+	char author[YT_AUTHOR_MAX];
+	char length[32];
+	YtSearchResult *dst;
+
+	if (!renderer || !count || *count >= max_out) return;
+	id = json_string_value(json_object_get(renderer, "videoId"));
+	if (!looks_like_video_id(id) || already_have_id(out, *count, id)) return;
+	json_text_into(json_object_get(renderer, "title"), title, sizeof(title));
+	json_text_into(json_object_get(renderer, "shortBylineText"), author,
+	               sizeof(author));
+	if (!author[0])
+		json_text_into(json_object_get(renderer, "longBylineText"), author,
+		               sizeof(author));
+	json_text_into(json_object_get(renderer, "lengthText"), length,
+	               sizeof(length));
+
+	dst = &out[(*count)++];
+	memset(dst, 0, sizeof(*dst));
+	copy_field(dst->id, sizeof(dst->id), id);
+	copy_field(dst->title, sizeof(dst->title),
+	           title[0] ? title : "Untitled");
+	copy_field(dst->author, sizeof(dst->author), author);
+	dst->length_seconds = parse_duration_text(length);
+}
+
+static void walk_search(json_t *node, YtSearchResult *out, int max_out,
+                        int *count)
+{
+	if (!node || !count || *count >= max_out) return;
+	if (json_is_object(node)) {
+		const char *key;
+		json_t *value;
+		json_t *compact = json_object_get(node, "compactVideoRenderer");
+		json_t *video = json_object_get(node, "videoRenderer");
+		if (compact) try_add_compact_video(compact, out, max_out, count);
+		if (video) try_add_compact_video(video, out, max_out, count);
+		json_object_foreach(node, key, value) {
+			(void)key;
+			walk_search(value, out, max_out, count);
+			if (*count >= max_out) return;
+		}
+	} else if (json_is_array(node)) {
+		size_t i;
+		for (i = 0; i < json_array_size(node); i++) {
+			walk_search(json_array_get(node, i), out, max_out, count);
+			if (*count >= max_out) return;
+		}
+	}
+}
+
+static int parse_innertube_search(const char *json, YtSearchResult *out,
+                                  int max_out)
 {
 	json_t *root;
 	json_error_t error;
-	json_t *videos;
-	json_t *audios;
-	size_t i;
-	int best_video_h = -1;
-	int best_audio_br = -1;
+	int count = 0;
 
 	root = json_loads(json, 0, &error);
 	if (!root) return -1;
-
-	memset(out, 0, sizeof(*out));
-	copy_field(out->title, sizeof(out->title),
-	           json_string_value(json_object_get(root, "title")));
-	copy_field(out->author, sizeof(out->author),
-	           json_string_value(json_object_get(root, "uploader")));
-	if (json_is_integer(json_object_get(root, "duration")))
-		out->length_seconds = (int)json_integer_value(json_object_get(root, "duration"));
-
-	videos = json_object_get(root, "videoStreams");
-	if (json_is_array(videos)) {
-		for (i = 0; i < json_array_size(videos); i++) {
-			json_t *v = json_array_get(videos, i);
-			const char *url = json_string_value(json_object_get(v, "url"));
-			const char *mime = json_string_value(json_object_get(v, "mimeType"));
-			const char *codec = json_string_value(json_object_get(v, "codec"));
-			json_t *video_only = json_object_get(v, "videoOnly");
-			json_t *height = json_object_get(v, "height");
-			int h = json_is_integer(height) ? (int)json_integer_value(height) : 0;
-			int is_video_only = json_is_true(video_only);
-			/* Prefer progressive mp4 with audio (not videoOnly) for Vita HW decode. */
-			if (!url || !url[0]) continue;
-			if (is_video_only) continue;
-			if (mime && !strstr(mime, "mp4") && !(codec && strstr(codec, "avc")))
-				continue;
-			if (h > best_video_h && h <= 720) {
-				best_video_h = h;
-				copy_field(out->video_url, sizeof(out->video_url), url);
-				pick_ext_from_mime(mime, "mp4", out->video_ext, sizeof(out->video_ext));
-			}
-		}
-		/* Fallback: any non-videoOnly stream */
-		if (!out->video_url[0]) {
-			for (i = 0; i < json_array_size(videos); i++) {
-				json_t *v = json_array_get(videos, i);
-				const char *url = json_string_value(json_object_get(v, "url"));
-				json_t *video_only = json_object_get(v, "videoOnly");
-				if (!url || json_is_true(video_only)) continue;
-				copy_field(out->video_url, sizeof(out->video_url), url);
-				pick_ext_from_mime(json_string_value(json_object_get(v, "mimeType")),
-				                   "mp4", out->video_ext, sizeof(out->video_ext));
-				break;
-			}
-		}
-	}
-
-	audios = json_object_get(root, "audioStreams");
-	if (json_is_array(audios)) {
-		for (i = 0; i < json_array_size(audios); i++) {
-			json_t *a = json_array_get(audios, i);
-			const char *url = json_string_value(json_object_get(a, "url"));
-			const char *mime = json_string_value(json_object_get(a, "mimeType"));
-			json_t *bitrate = json_object_get(a, "bitrate");
-			int br = json_is_integer(bitrate) ? (int)json_integer_value(bitrate) : 0;
-			int prefer_mp3 = mime && (strstr(mime, "mpeg") || strstr(mime, "mp3"));
-			int prefer_m4a = mime && strstr(mime, "mp4");
-			if (!url || !url[0]) continue;
-			/* Prefer mp3, then m4a/aac, then highest bitrate. */
-			if (prefer_mp3 ||
-			    (prefer_m4a && best_audio_br < 1000000) ||
-			    br > best_audio_br) {
-				if (prefer_mp3) best_audio_br = 2000000;
-				else if (prefer_m4a && br < 1000000) best_audio_br = 1000000 + br;
-				else best_audio_br = br;
-				copy_field(out->audio_url, sizeof(out->audio_url), url);
-				pick_ext_from_mime(mime, "m4a", out->audio_ext, sizeof(out->audio_ext));
-			}
-		}
-	}
-
+	walk_search(root, out, max_out, &count);
 	json_decref(root);
-	return out->video_url[0] || out->audio_url[0] ? 0 : -1;
+	return count;
 }
 
-static int parse_invidious_video(const char *json, YtResolvedMedia *out)
+static int parse_innertube_player(const char *json, YtResolvedMedia *out)
 {
 	json_t *root;
 	json_error_t error;
+	json_t *details;
+	json_t *sd;
 	json_t *formats;
 	json_t *adaptive;
+	json_t *playability;
 	size_t i;
 	int best_h = -1;
 	int best_audio = -1;
+	const char *status;
 
 	root = json_loads(json, 0, &error);
 	if (!root) return -1;
 	memset(out, 0, sizeof(*out));
-	copy_field(out->title, sizeof(out->title),
-	           json_string_value(json_object_get(root, "title")));
-	copy_field(out->author, sizeof(out->author),
-	           json_string_value(json_object_get(root, "author")));
-	if (json_is_integer(json_object_get(root, "lengthSeconds")))
-		out->length_seconds =
-		    (int)json_integer_value(json_object_get(root, "lengthSeconds"));
 
-	formats = json_object_get(root, "formatStreams");
+	playability = json_object_get(root, "playabilityStatus");
+	status = json_string_value(json_object_get(playability, "status"));
+	if (status && strcmp(status, "OK") != 0) {
+		json_decref(root);
+		return -1;
+	}
+
+	details = json_object_get(root, "videoDetails");
+	if (details) {
+		copy_field(out->title, sizeof(out->title),
+		           json_string_value(json_object_get(details, "title")));
+		copy_field(out->author, sizeof(out->author),
+		           json_string_value(json_object_get(details, "author")));
+		{
+			const char *len =
+			    json_string_value(json_object_get(details, "lengthSeconds"));
+			if (len) out->length_seconds = (int)strtol(len, NULL, 10);
+		}
+	}
+
+	sd = json_object_get(root, "streamingData");
+	formats = sd ? json_object_get(sd, "formats") : NULL;
 	if (json_is_array(formats)) {
 		for (i = 0; i < json_array_size(formats); i++) {
 			json_t *f = json_array_get(formats, i);
 			const char *url = json_string_value(json_object_get(f, "url"));
-			const char *type = json_string_value(json_object_get(f, "type"));
-			const char *quality = json_string_value(json_object_get(f, "qualityLabel"));
-			int h = 0;
-			if (!url) continue;
-			if (type && !strstr(type, "mp4")) continue;
-			if (quality) sscanf(quality, "%dp", &h);
-			if (h > best_h && h <= 720) {
+			const char *mime =
+			    json_string_value(json_object_get(f, "mimeType"));
+			json_t *height = json_object_get(f, "height");
+			int h = json_is_integer(height) ? (int)json_integer_value(height)
+			                                : 0;
+			if (!url || !url[0]) continue;
+			/* Prefer muxed progressive MP4 ≤720p for Vita HW decode. */
+			if (mime && !strstr(mime, "mp4") && !strstr(mime, "avc1"))
+				continue;
+			if (h <= 0) {
+				const char *label =
+				    json_string_value(json_object_get(f, "qualityLabel"));
+				if (label) sscanf(label, "%dp", &h);
+			}
+			if (h > 720) continue;
+			if (h >= best_h) {
 				best_h = h;
 				copy_field(out->video_url, sizeof(out->video_url), url);
-				snprintf(out->video_ext, sizeof(out->video_ext), "mp4");
-			}
-		}
-		if (!out->video_url[0]) {
-			for (i = 0; i < json_array_size(formats); i++) {
-				json_t *f = json_array_get(formats, i);
-				const char *url = json_string_value(json_object_get(f, "url"));
-				if (!url) continue;
-				copy_field(out->video_url, sizeof(out->video_url), url);
-				snprintf(out->video_ext, sizeof(out->video_ext), "mp4");
-				break;
+				pick_ext_from_mime(mime, "mp4", out->video_ext,
+				                   sizeof(out->video_ext));
 			}
 		}
 	}
 
-	adaptive = json_object_get(root, "adaptiveFormats");
+	adaptive = sd ? json_object_get(sd, "adaptiveFormats") : NULL;
 	if (json_is_array(adaptive)) {
 		for (i = 0; i < json_array_size(adaptive); i++) {
 			json_t *f = json_array_get(adaptive, i);
 			const char *url = json_string_value(json_object_get(f, "url"));
-			const char *type = json_string_value(json_object_get(f, "type"));
+			const char *mime =
+			    json_string_value(json_object_get(f, "mimeType"));
 			json_t *bitrate = json_object_get(f, "bitrate");
-			int br = json_is_integer(bitrate) ? (int)json_integer_value(bitrate) : 0;
-			if (!url || !type || strncmp(type, "audio/", 6) != 0) continue;
-			if (strstr(type, "mpeg") || strstr(type, "mp3")) {
-				best_audio = 2000000;
+			int br = json_is_integer(bitrate) ? (int)json_integer_value(bitrate)
+			                                  : 0;
+			int prefer_mp3;
+			int prefer_m4a;
+			if (!url || !url[0] || !mime) continue;
+			if (strncmp(mime, "audio/", 6) != 0) continue;
+			prefer_mp3 = strstr(mime, "mpeg") || strstr(mime, "mp3");
+			prefer_m4a = strstr(mime, "mp4") || strstr(mime, "mp4a");
+			/* Prefer mp3 (rare), then m4a/aac, then highest bitrate. */
+			if (prefer_mp3 ||
+			    (prefer_m4a && best_audio < 1000000) ||
+			    br > best_audio) {
+				if (prefer_mp3) best_audio = 2000000;
+				else if (prefer_m4a && br < 1000000)
+					best_audio = 1000000 + br;
+				else
+					best_audio = br;
 				copy_field(out->audio_url, sizeof(out->audio_url), url);
-				snprintf(out->audio_ext, sizeof(out->audio_ext), "mp3");
-			} else if ((strstr(type, "mp4") || strstr(type, "aac")) &&
-			           best_audio < 1000000) {
-				best_audio = 1000000 + br;
-				copy_field(out->audio_url, sizeof(out->audio_url), url);
-				snprintf(out->audio_ext, sizeof(out->audio_ext), "m4a");
-			} else if (br > best_audio) {
-				best_audio = br;
-				copy_field(out->audio_url, sizeof(out->audio_url), url);
-				pick_ext_from_mime(type, "m4a", out->audio_ext, sizeof(out->audio_ext));
+				pick_ext_from_mime(mime, "m4a", out->audio_ext,
+				                   sizeof(out->audio_ext));
 			}
 		}
 	}
@@ -406,11 +471,9 @@ static int parse_invidious_video(const char *json, YtResolvedMedia *out)
 int yt_client_search(const char *query, YtSearchResult *out, int max_out,
                      char *detail, size_t detail_size)
 {
-	char *escaped;
-	char url[1024];
 	YtBuffer buffer;
-	int i;
-	int count = -1;
+	json_t *body;
+	int count;
 
 	if (!query || !query[0] || !out || max_out <= 0) {
 		set_detail(detail, detail_size, "Empty search");
@@ -421,50 +484,34 @@ int yt_client_search(const char *query, YtSearchResult *out, int max_out,
 		return -1;
 	}
 
-	escaped = vita_https_escape(query, strlen(query));
-	if (!escaped) {
+	body = json_pack("{s:s}", "query", query);
+	if (!body) {
 		set_detail(detail, detail_size, "Out of memory");
 		return -1;
 	}
+	if (it_post("search", IT_LIST_FIELDS, body, IT_CLIENT_ANDROID, &buffer,
+	            detail, detail_size) < 0)
+		return -1;
 
-	for (i = 0; k_piped_apis[i]; i++) {
-		snprintf(url, sizeof(url), "%s/search?q=%s&filter=videos",
-		         k_piped_apis[i], escaped);
-		if (http_get_json(url, &buffer, detail, detail_size) < 0) continue;
-		count = parse_piped_search((const char *)buffer.data, out, max_out);
-		buffer_free(&buffer);
-		if (count > 0) {
-			vita_https_free(escaped);
-			set_detail(detail, detail_size, "");
-			return count;
-		}
+	count = parse_innertube_search((const char *)buffer.data, out, max_out);
+	buffer_free(&buffer);
+	if (count < 0) {
+		set_detail(detail, detail_size, "Could not parse search results");
+		return -1;
 	}
-
-	for (i = 0; k_invidious_apis[i]; i++) {
-		snprintf(url, sizeof(url), "%s/api/v1/search?q=%s&type=video",
-		         k_invidious_apis[i], escaped);
-		if (http_get_json(url, &buffer, detail, detail_size) < 0) continue;
-		count = parse_invidious_search((const char *)buffer.data, out, max_out);
-		buffer_free(&buffer);
-		if (count > 0) {
-			vita_https_free(escaped);
-			set_detail(detail, detail_size, "");
-			return count;
-		}
+	if (count == 0) {
+		set_detail(detail, detail_size, "No results");
+		return 0;
 	}
-
-	vita_https_free(escaped);
-	if (detail && detail_size && !detail[0])
-		set_detail(detail, detail_size, "No results from available mirrors");
-	return count < 0 ? -1 : 0;
+	set_detail(detail, detail_size, "");
+	return count;
 }
 
 int yt_client_resolve(const char *video_id, YtResolvedMedia *out,
                       char *detail, size_t detail_size)
 {
-	char url[512];
 	YtBuffer buffer;
-	int i;
+	json_t *body;
 
 	if (!looks_like_video_id(video_id) || !out) {
 		set_detail(detail, detail_size, "Invalid video id");
@@ -475,31 +522,26 @@ int yt_client_resolve(const char *video_id, YtResolvedMedia *out,
 		return -1;
 	}
 
-	for (i = 0; k_piped_apis[i]; i++) {
-		snprintf(url, sizeof(url), "%s/streams/%s", k_piped_apis[i], video_id);
-		if (http_get_json(url, &buffer, detail, detail_size) < 0) continue;
-		if (parse_piped_streams((const char *)buffer.data, out) == 0) {
-			buffer_free(&buffer);
-			set_detail(detail, detail_size, "");
-			return 0;
-		}
-		buffer_free(&buffer);
+	body = json_pack("{s:s,s:b,s:b}",
+	                 "videoId", video_id,
+	                 "contentCheckOk", 1,
+	                 "racyCheckOk", 1);
+	if (!body) {
+		set_detail(detail, detail_size, "Out of memory");
+		return -1;
 	}
+	if (it_post("player", NULL, body, IT_CLIENT_ANDROID_VR, &buffer, detail,
+	            detail_size) < 0)
+		return -1;
 
-	for (i = 0; k_invidious_apis[i]; i++) {
-		snprintf(url, sizeof(url), "%s/api/v1/videos/%s",
-		         k_invidious_apis[i], video_id);
-		if (http_get_json(url, &buffer, detail, detail_size) < 0) continue;
-		if (parse_invidious_video((const char *)buffer.data, out) == 0) {
-			buffer_free(&buffer);
-			set_detail(detail, detail_size, "");
-			return 0;
-		}
+	if (parse_innertube_player((const char *)buffer.data, out) != 0) {
 		buffer_free(&buffer);
+		set_detail(detail, detail_size, "Could not resolve media streams");
+		return -1;
 	}
-
-	set_detail(detail, detail_size, "Could not resolve media streams");
-	return -1;
+	buffer_free(&buffer);
+	set_detail(detail, detail_size, "");
+	return 0;
 }
 
 void yt_client_safe_filename(const char *title, char *out, size_t out_size)

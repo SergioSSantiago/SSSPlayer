@@ -1,6 +1,8 @@
 #ifndef SSSPLAYER_UI_YT_SCREEN_H
 #define SSSPLAYER_UI_YT_SCREEN_H
 
+#include "network/yt_client.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -9,10 +11,10 @@ extern "C" {
 #define UI_YT_ACTION_PLAY 1
 
 typedef struct {
-	char video_url[2048];
-	char title[160];
-	char author[96];
-	char video_id[24];
+	char video_url[YT_URL_MAX];
+	char title[YT_TITLE_MAX];
+	char author[YT_AUTHOR_MAX];
+	char video_id[YT_ID_MAX];
 } UiYtSelection;
 
 /* Search / browse / download screen. Returns UI_YT_ACTION_PLAY with selection

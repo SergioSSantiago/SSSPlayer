@@ -157,7 +157,7 @@ static int draw_action_menu(const YtSearchResult *item, int *choice)
 	const char *labels[] = {
 		"Play video",
 		"Download video",
-		"Download audio (MP3/M4A)",
+		"Download audio (M4A)",
 		"Cancel"
 	};
 
@@ -321,12 +321,11 @@ static int resolve_and_act(const YtSearchResult *item, UiYtSelection *selection,
 		snprintf(filename, sizeof(filename), "%s.%s", base,
 		         media.audio_ext[0] ? media.audio_ext : "m4a");
 		sceIoMkdir("ux0:music", 0777);
-		if (run_yt_download(media.audio_url, filename, "ux0:music") == 0 &&
-		    strcmp(media.audio_ext, "mp3") != 0) {
+		if (run_yt_download(media.audio_url, filename, "ux0:music") == 0) {
 			ui_message_show(
 			    "Audio saved",
-			    "Format is usually M4A (not MP3). Music library plays MP3/FLAC/OGG.",
-			    3600);
+			    "Saved as M4A (AAC). Play it from ux0:/music or uma0:/music.",
+			    3200);
 		}
 		return 0;
 	}

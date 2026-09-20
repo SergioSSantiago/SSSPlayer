@@ -11,7 +11,8 @@ typedef enum {
     DECODER_MP3     = 1,
     DECODER_FLAC    = 2,
     DECODER_OGG     = 3,
-    DECODER_WAV     = 4
+    DECODER_WAV     = 4,
+    DECODER_M4A     = 5   /* AAC in MP4 / ADTS (.m4a, .aac) */
 } DecoderType;
 
 /* ── Decoder state ────────────────────────────────────────────────────────── */
@@ -120,5 +121,6 @@ void decoder_scan_duration(Decoder *dec);
 int decoder_mp3_open (Decoder *dec, const char *filepath);
 int decoder_flac_open(Decoder *dec, const char *filepath);
 int decoder_ogg_open (Decoder *dec, const char *filepath);
+int decoder_m4a_open (Decoder *dec, const char *filepath);
 
 #endif /* DECODER_H */

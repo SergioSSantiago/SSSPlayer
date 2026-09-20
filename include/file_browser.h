@@ -25,7 +25,8 @@ typedef enum {
     FILE_TYPE_OGG       = 3,
     FILE_TYPE_WAV       = 4,
     FILE_TYPE_DIRECTORY = 5,
-    FILE_TYPE_VIDEO     = 6
+    FILE_TYPE_VIDEO     = 6,
+    FILE_TYPE_M4A       = 7   /* AAC / M4A */
 } FileType;
 
 /* ── A single directory entry ─────────────────────────────────────────────── */

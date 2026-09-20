@@ -9,12 +9,12 @@ Use this sheet when submitting **SSSPlayer** to [VitaDB](https://www.rinnegatama
 | **Name** | SSSPlayer |
 | **Author / Developer** | SergioSSantiago |
 | **TITLEID** | `SSSP00001` |
-| **Version** | 1.1.4 |
+| **Version** | 1.1.6 |
 | **Category** | Utility / Media player |
 | **License** | GPL-3.0-only |
 | **Source** | https://github.com/SergioSSantiago/SSSPlayer |
 | **Download** | https://github.com/SergioSSantiago/SSSPlayer/releases/latest |
-| **Direct VPK** | https://github.com/SergioSSantiago/SSSPlayer/releases/download/v1.1.4/SSSPlayer-1.1.4.vpk |
+| **Direct VPK** | https://github.com/SergioSSantiago/SSSPlayer/releases/download/v1.1.6/SSSPlayer-1.1.6.vpk |
 | **Icon** | `assets/icons/icon0.png` (128×128) |
 | **Data dir** | `ux0:data/SSSPlayer/` |
 
@@ -33,7 +33,7 @@ Reproductor de música y vídeo para PS Vita por SergioSSantiago. Une un shell d
 SSSPlayer is an all-in-one media player for PlayStation Vita.
 
 **Music**
-- Browse `ux0:/music` and `uma0:/music` (MP3, FLAC, OGG)
+- Browse `ux0:/music` and `uma0:/music` (MP3, FLAC, OGG, M4A/AAC)
 - Now Playing with touch scrub on the progress bar
 - 10-band equalizer, spectrum visualizer, M3U playlists
 - Theme system (Terminus CRT theme by default)

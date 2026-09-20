@@ -1,7 +1,7 @@
 # SSSPlayer
 
-**Latest release: [v1.1.5](https://github.com/SergioSSantiago/SSSPlayer/releases/tag/v1.1.5)**  
-Download: `SSSPlayer-1.1.5.vpk`
+**Latest release: [v1.1.6](https://github.com/SergioSSantiago/SSSPlayer/releases/tag/v1.1.6)**  
+Download: `SSSPlayer-1.1.6.vpk`
 
 Music + video media player for PlayStation Vita by **[SergioSSantiago](https://github.com/SergioSSantiago)**.
 
@@ -11,7 +11,7 @@ SSSPlayer brings together a polished music experience (equalizer, visualizer, pl
 |---|---|
 | **TITLEID** | `SSSP00001` |
 | **Developer** | [SergioSSantiago](https://github.com/SergioSSantiago) |
-| **Version** | 1.1.5 |
+| **Version** | 1.1.6 |
 | **Data** | `ux0:data/SSSPlayer/` |
 | **License** | GPL-3.0-only |
 
@@ -27,7 +27,7 @@ This app reuses and combines parts of both codebases into one media player. All 
 ## Features
 
 ### Music
-- MP3, FLAC, OGG from `ux0:/music` and `uma0:/music`
+- MP3, FLAC, OGG, M4A/AAC from `ux0:/music` and `uma0:/music`
 - Now Playing with **touch scrub** on the progress bar
 - 10-band EQ, spectrum visualizer, M3U playlists
 - Theme system (Terminus default CRT look)

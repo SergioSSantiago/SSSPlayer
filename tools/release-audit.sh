@@ -30,7 +30,10 @@ for forbidden in sce_sys/psvitaframe.png vendor/ffmpeg-vita/libavcodec.a \
   fi
 done
 
-if git grep -InE 'BotGuard|innertube|youtubei/v1|AIza[0-9A-Za-z_-]{20,}' -- \
+# BotGuard and hard-coded Google API keys stay forbidden. InnerTube
+# (youtubei/v1) is an intentional anonymous YouTube client path (see
+# src/network/yt_client.c), matching the ViTube ANDROID / ANDROID_VR approach.
+if git grep -InE 'BotGuard|AIza[0-9A-Za-z_-]{20,}' -- \
     src CMakeLists.txt assets sce_sys >/dev/null 2>&1; then
   fail "current source snapshot contains retired platform or credential markers"
 fi

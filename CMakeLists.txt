@@ -117,7 +117,7 @@ include("${VITASDK}/share/vita.cmake" REQUIRED)
 set(VITA_APP_NAME "SSSPlayer")
 set(VITA_TITLEID  "SSSP00001")
 set(VITA_VERSION  "01.01")
-set(SSSPLAYER_VERSION_LABEL "1.1.5")
+set(SSSPLAYER_VERSION_LABEL "1.1.6")
 set(SSSPLAYER_VPK_NAME "SSSPlayer-${SSSPLAYER_VERSION_LABEL}.vpk")
 
 set(VITA_MKSFOEX_FLAGS
@@ -172,6 +172,7 @@ set(SOURCES
   src/decoder_mp3.c
   src/decoder_flac.c
   src/decoder_ogg.c
+  src/decoder_m4a.c
   src/file_browser.c
   src/media_db.c
   src/metadata.c
@@ -250,6 +251,9 @@ set_source_files_properties(sqlite/sqlite3.c PROPERTIES
 )
 
 add_executable(${PROJECT_NAME} ${SOURCES})
+
+target_include_directories(${PROJECT_NAME} PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/packages/vita-hw-decoder/src)
 
 target_compile_options(${PROJECT_NAME} PRIVATE
   -mcpu=cortex-a9 -mfpu=neon -mfloat-abi=hard

@@ -104,7 +104,11 @@ static int add_music_int(sqlite3 *db, const char *dir, int added)
             } else {
                 int l = strlen(dinfo.d_name);
                 if (l > 4 && dinfo.d_name[0] != '.' &&
-                    strcmp(dinfo.d_name + l - 4, ".mp3") == 0) {
+                    (strcmp(dinfo.d_name + l - 4, ".mp3") == 0 ||
+                     strcmp(dinfo.d_name + l - 4, ".m4a") == 0 ||
+                     strcmp(dinfo.d_name + l - 4, ".aac") == 0 ||
+                     strcmp(dinfo.d_name + l - 4, ".ogg") == 0 ||
+                     (l > 5 && strcmp(dinfo.d_name + l - 5, ".flac") == 0))) {
                     int c = sql_get_count(db, select_content_count_sql, new_path);
                     if (c == 0) {
                         sql_insert_music(db, new_path, dinfo.d_stat.st_size);

@@ -216,6 +216,8 @@ FileType file_browser_get_file_type(const char *filename)
     if (strcmp(lext, "flac") == 0) return FILE_TYPE_FLAC;
     if (strcmp(lext, "ogg")  == 0) return FILE_TYPE_OGG;
     if (strcmp(lext, "wav")  == 0) return FILE_TYPE_WAV;
+    if (strcmp(lext, "m4a")  == 0 || strcmp(lext, "aac") == 0)
+        return FILE_TYPE_M4A;
     if (strcmp(lext, "mp4")  == 0 || strcmp(lext, "m4v")  == 0 ||
         strcmp(lext, "mkv")  == 0 || strcmp(lext, "avi")  == 0 ||
         strcmp(lext, "mov")  == 0 || strcmp(lext, "webm") == 0 ||
@@ -232,7 +234,8 @@ bool file_browser_is_audio_file(const char *filename)
     return t == FILE_TYPE_MP3  ||
            t == FILE_TYPE_FLAC ||
            t == FILE_TYPE_OGG  ||
-           t == FILE_TYPE_WAV;
+           t == FILE_TYPE_WAV  ||
+           t == FILE_TYPE_M4A;
 }
 
 bool file_browser_is_media_file(const char *filename)
@@ -242,6 +245,7 @@ bool file_browser_is_media_file(const char *filename)
            t == FILE_TYPE_FLAC ||
            t == FILE_TYPE_OGG  ||
            t == FILE_TYPE_WAV  ||
+           t == FILE_TYPE_M4A  ||
            t == FILE_TYPE_VIDEO;
 }
 

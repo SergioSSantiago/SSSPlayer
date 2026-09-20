@@ -278,6 +278,7 @@ DecoderType decoder_detect_type(const char *filepath)
     if (strcmp(e, "flac")== 0) return DECODER_FLAC;
     if (strcmp(e, "ogg") == 0) return DECODER_OGG;
     if (strcmp(e, "wav") == 0) return DECODER_WAV;
+    if (strcmp(e, "m4a") == 0 || strcmp(e, "aac") == 0) return DECODER_M4A;
     return DECODER_UNKNOWN;
 }
 
@@ -302,6 +303,7 @@ Decoder *decoder_open(const char *filepath)
         case DECODER_MP3:  ret = decoder_mp3_open (dec, filepath); break;
         case DECODER_FLAC: ret = decoder_flac_open(dec, filepath); break;
         case DECODER_OGG:  ret = decoder_ogg_open (dec, filepath); break;
+        case DECODER_M4A:  ret = decoder_m4a_open (dec, filepath); break;
         default: break;
     }
 
