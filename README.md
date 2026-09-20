@@ -47,16 +47,17 @@ This app reuses and combines parts of both codebases into one media player. All 
 
 After install, put music under `ux0:/music` (or `uma0:/music`) and videos under `ux0:/video` / `uma0:/video` (or `movies`).
 
-## Store listing (VitaDB / VitaAlive)
+## Store listing (VitaDB / VitaAlive / NeoVitaDB)
 
-Ready for submission. See [`docs/STORE.md`](docs/STORE.md) for the copy-paste description, TITLEID, and checklist.
+Ready for submission. See [`docs/STORE.md`](docs/STORE.md) and paste-ready [`docs/store/SUBMIT_PASTE.md`](docs/store/SUBMIT_PASTE.md).
 
 - **Unique TITLEID:** `SSSP00001` (does not clash with VitaWave or VitaMediaDeck/VideoSSS)
-- **Latest VPK:** [SSSPlayer-1.1.3.vpk](https://github.com/SergioSSantiago/SSSPlayer/releases/download/v1.1.3/SSSPlayer-1.1.3.vpk)
+- **Latest VPK:** [SSSPlayer-1.1.13.vpk](https://github.com/SergioSSantiago/SSSPlayer/releases/download/v1.1.13/SSSPlayer-1.1.13.vpk)
 - **Icon:** `assets/icons/icon0.png` (128×128 indexed PNG)
 - **Source:** https://github.com/SergioSSantiago/SSSPlayer
+- **NeoVitaDB:** [PR #11 (Catalog-Test)](https://github.com/robin994/NeoVitaDB-Catalog-Test/pull/11) — id `1941`
 
-Submit on [VitaDB](https://www.rinnegatamante.eu/vitadb/#/submit) (and VitaAlive with the same metadata).
+Submit on [VitaDB](https://www.rinnegatamante.eu/vitadb/#/submit) (and VitaAlive with the same metadata when online).
 
 ## Building from source
 
@@ -70,7 +71,7 @@ cmake .. -DCMAKE_TOOLCHAIN_FILE=$VITASDK/share/vita.toolchain.cmake -DVITASDK=$V
 make -j$(sysctl -n hw.ncpu)
 ```
 
-The packaged file is `SSSPlayer-1.1.3.vpk` (version embedded in the filename).
+The packaged file is `SSSPlayer-1.1.13.vpk` (version embedded in the filename).
 
 ## License
 

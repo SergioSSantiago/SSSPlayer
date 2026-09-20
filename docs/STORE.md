@@ -1,6 +1,6 @@
-# Store submission — VitaDB & VitaAlive
+# Store submission — VitaDB, VitaAlive & NeoVitaDB
 
-Use this sheet when submitting **SSSPlayer** to [VitaDB](https://www.rinnegatamante.eu/vitadb/#/submit) and VitaAlive.
+Use this sheet when submitting **SSSPlayer** to [VitaDB](https://www.rinnegatamante.eu/vitadb/#/submit), VitaAlive (same metadata), and [NeoVitaDB Catalog-Test](https://github.com/robin994/NeoVitaDB-Catalog-Test).
 
 ## Identity
 
@@ -9,24 +9,25 @@ Use this sheet when submitting **SSSPlayer** to [VitaDB](https://www.rinnegatama
 | **Name** | SSSPlayer |
 | **Author / Developer** | SergioSSantiago |
 | **TITLEID** | `SSSP00001` |
-| **Version** | 1.1.6 |
+| **Version** | 1.1.13 |
 | **Category** | Utility / Media player |
 | **License** | GPL-3.0-only |
 | **Source** | https://github.com/SergioSSantiago/SSSPlayer |
 | **Download** | https://github.com/SergioSSantiago/SSSPlayer/releases/latest |
-| **Direct VPK** | https://github.com/SergioSSantiago/SSSPlayer/releases/download/v1.1.6/SSSPlayer-1.1.6.vpk |
+| **Direct VPK** | https://github.com/SergioSSantiago/SSSPlayer/releases/download/v1.1.13/SSSPlayer-1.1.13.vpk |
 | **Icon** | `assets/icons/icon0.png` (128×128) |
 | **Data dir** | `ux0:data/SSSPlayer/` |
+| **NeoVitaDB id** | `1941` (`1941-sssplayer`) |
 
 `SSSP00001` is unique to this app (not VitaWave, not VitaMediaDeck / VideoSSS).
 
 ## Short description (English)
 
-Music and video player for PS Vita by SergioSSantiago. Combines a VitaWave-style music shell (EQ, visualizer, playlists, themes) with VitaMediaDeck-class video playback: H.264 hardware decode, precise touch seek, subtitles, and network streaming (SMB, SFTP, WebDAV, Jellyfin).
+Music and video player for PS Vita by SergioSSantiago. VitaWave-style music (EQ, visualizer, playlists, themes), VitaMediaDeck-class H.264 video with precise seek, network streaming (SMB, SFTP, WebDAV, Jellyfin), plus YouTube search/play/download and in-app auto-update.
 
 ## Short description (Spanish)
 
-Reproductor de música y vídeo para PS Vita por SergioSSantiago. Une un shell de música estilo VitaWave (EQ, visualizer, playlists, temas) con reproducción de vídeo al nivel de VitaMediaDeck: decode H.264 por hardware, seek táctil preciso, subtítulos y streaming de red (SMB, SFTP, WebDAV, Jellyfin).
+Reproductor de música y vídeo para PS Vita por SergioSSantiago. Música estilo VitaWave (EQ, visualizer, playlists, temas), vídeo H.264 con seek preciso al estilo VitaMediaDeck, streaming de red (SMB, SFTP, WebDAV, Jellyfin), más búsqueda/reproducción/descarga de YouTube y auto-update en la app.
 
 ## Long description (English)
 
@@ -44,6 +45,15 @@ SSSPlayer is an all-in-one media player for PlayStation Vita.
 - Subtitles and audio tracks
 - Network sources: SMB, SFTP, WebDAV, Jellyfin
 
+**YouTube**
+- Search and stream playback on-device
+- Download video (H.264 up to 720p remuxed to MP4) or audio (MP3 / M4A)
+- Destination folder picker; in-app delete (Square); download progress
+
+**Extras**
+- In-app check for updates and VPK install via promoter
+- Local file browser with delete
+
 **Install**
 1. Download `SSSPlayer-x.y.z.vpk` from GitHub Releases
 2. Enable FTP in VitaShell
@@ -57,7 +67,7 @@ Built by SergioSSantiago. Thanks to VitaWave and VitaMediaDeck — SSSPlayer reu
 
 - PS Vita / PSTV with HENkaku / enso (standard homebrew)
 - No extra plugins required for local music/video
-- Network features need Wi‑Fi
+- Network features and YouTube need Wi‑Fi
 
 ## Screenshots checklist
 
@@ -66,7 +76,8 @@ Before submitting, capture on-device screenshots of:
 1. Browser root (music + video mounts)
 2. Now Playing (music) with Terminus theme
 3. Video playback HUD / seek bar
-4. Settings (Video Library / Network Videos)
+4. YouTube search / download screen
+5. Settings (Video Library / Network Videos / Update)
 
 Place optional store assets under `docs/store/` if you add them later.
 
@@ -75,13 +86,21 @@ Place optional store assets under `docs/store/` if you add them later.
 - [ ] Logged in at https://www.rinnegatamante.eu/vitadb/
 - [ ] New homebrew → name **SSSPlayer**, author **SergioSSantiago**
 - [ ] TITLEID **SSSP00001**
-- [ ] Paste short + long description from this file
-- [ ] Link latest GitHub release / VPK
+- [ ] Version **1.1.13**
+- [ ] Paste short + long description from this file (or `docs/store/SUBMIT_PASTE.md`)
+- [ ] Link latest GitHub release / VPK (`SSSPlayer-1.1.13.vpk`)
 - [ ] Upload icon0.png
 - [ ] Upload screenshots
 - [ ] Confirm GPL-3.0 / open source link
 - [ ] Submit
 
+Paste-ready copy: [`docs/store/SUBMIT_PASTE.md`](store/SUBMIT_PASTE.md)
+
 ## VitaAlive
 
-Use the **same** TITLEID, author, description, icon, and VPK URL as VitaDB so both stores stay in sync when you publish updates.
+Use the **same** TITLEID, author, description, icon, and VPK URL as VitaDB so both stores stay in sync when you publish updates. (`vitaalive.com` is currently offline; keep metadata ready for when the mirror is back.)
+
+## NeoVitaDB
+
+Staging PR (Catalog-Test): https://github.com/robin994/NeoVitaDB-Catalog-Test/pull/11  
+Entry: `apps/vita/1941-sssplayer.json` — catalog resolves the latest `*.vpk` from GitHub Releases automatically.

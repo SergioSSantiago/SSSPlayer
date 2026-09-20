@@ -1,9 +1,12 @@
 # VitaDB / VitaAlive — paste-ready submission
 
-I cannot submit this for you from here: VitaDB requires **your** logged-in account
+VitaDB requires **your** logged-in account
 (https://www.rinnegatamante.eu/vitadb/#/login). There is no public submit API.
 
 Open https://www.rinnegatamante.eu/vitadb/#/submit while logged in and paste below.
+
+NeoVitaDB staging PR (auto-tracks latest GitHub VPK):
+https://github.com/robin994/NeoVitaDB-Catalog-Test/pull/11
 
 ---
 
@@ -49,7 +52,7 @@ https://github.com/SergioSSantiago/SSSPlayer/releases/download/v1.1.13/SSSPlayer
 
 **Short description**
 ```
-Music and video player for PS Vita by SergioSSantiago. VitaWave-style music shell (EQ, visualizer, playlists, themes) plus VitaMediaDeck-class video: H.264 hardware decode, precise touch seek, subtitles, and network streaming (SMB, SFTP, WebDAV, Jellyfin).
+Music and video player for PS Vita by SergioSSantiago. VitaWave-style music (EQ, visualizer, playlists, themes), VitaMediaDeck-class H.264 video with precise seek, network streaming (SMB, SFTP, WebDAV, Jellyfin), plus YouTube search/play/download and in-app auto-update.
 ```
 
 **Long description**
@@ -57,7 +60,7 @@ Music and video player for PS Vita by SergioSSantiago. VitaWave-style music shel
 SSSPlayer is an all-in-one media player for PlayStation Vita by SergioSSantiago.
 
 Music:
-- Browse ux0:/music and uma0:/music (MP3, FLAC, OGG)
+- Browse ux0:/music and uma0:/music (MP3, FLAC, OGG, M4A/AAC)
 - Now Playing with touch scrub on the progress bar
 - 10-band equalizer, spectrum visualizer, M3U playlists
 - Theme system (Terminus CRT theme by default)
@@ -67,6 +70,15 @@ Video:
 - Hardware H.264 playback with exact seek / scrub
 - Subtitles and audio tracks
 - Network sources: SMB, SFTP, WebDAV, Jellyfin
+
+YouTube:
+- Search and stream playback on-device
+- Download video (H.264 up to 720p remuxed to MP4) or audio (MP3 / M4A)
+- Destination folder picker; in-app delete (Square); download progress
+
+Extras:
+- In-app check for updates and VPK install
+- Local file browser with delete
 
 Install:
 1. Download SSSPlayer-x.y.z.vpk from GitHub Releases
@@ -85,10 +97,12 @@ License: GPL-3.0-only
 1. Browser with music + video folders  
 2. Now Playing  
 3. Video playback  
-4. Settings  
+4. YouTube search / download  
+5. Settings  
 
 ---
 
 ## VitaAlive
 
-Use the **same** values as above. VitaAlive / VitaDB Downloader typically pick up listings from VitaDB once approved — keep TITLEID `SSSP00001` and the GitHub release URL identical.
+Use the **same** values as above. Keep TITLEID `SSSP00001` and the GitHub release URL identical.
+(`vitaalive.com` is currently offline; paste the same listing when the mirror returns.)
