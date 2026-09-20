@@ -110,14 +110,14 @@ set(VITAMEDIADECK_FFMPEG_LICENSE_RESOURCE
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Build type" FORCE)
 endif()
-option(SSSPLAYER_ENABLE_LTO "Enable LTO for production Vita builds" ON)
+option(SSSPLAYER_ENABLE_LTO "Enable LTO for production Vita builds" OFF)
 
 include("${VITASDK}/share/vita.cmake" REQUIRED)
 
 set(VITA_APP_NAME "SSSPlayer")
 set(VITA_TITLEID  "SSSP00001")
 set(VITA_VERSION  "01.01")
-set(SSSPLAYER_VERSION_LABEL "1.1.14")
+set(SSSPLAYER_VERSION_LABEL "1.1.15")
 set(SSSPLAYER_VPK_NAME "SSSPlayer-${SSSPLAYER_VERSION_LABEL}.vpk")
 
 set(VITA_MKSFOEX_FLAGS
@@ -223,6 +223,7 @@ set(SOURCES
   src/media/hw_player_screen.c
   src/media/image_loader.c
   src/media/music_metadata.c
+  src/media/music_library.c
   ## Video UI surfaces
   src/ui/font.c
   src/ui/format.c
@@ -238,6 +239,7 @@ set(SOURCES
   src/ui/sections_sidebar.c
   src/ui/local_media_screen.c
   src/ui/local_files_screen.c
+  src/ui/music_library_screen.c
   src/ui/music_player.c
   src/ui/settings_screen.c
   src/ui/about_screen.c
@@ -327,7 +329,7 @@ target_link_libraries(${PROJECT_NAME}
 )
 
 set(VITA_MKSFOEX_FLAGS "${VITA_MKSFOEX_FLAGS} -d ATTRIBUTE2=12")
-vita_create_self(${PROJECT_NAME}.self ${PROJECT_NAME} UNSAFE NOASLR)
+vita_create_self(${PROJECT_NAME}.self ${PROJECT_NAME} UNSAFE NOASLR STRIPPED)
 
 vita_create_vpk(${SSSPLAYER_VPK_NAME} ${VITA_TITLEID} ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}.self
   VERSION ${VITA_VERSION}

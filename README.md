@@ -1,7 +1,7 @@
 # SSSPlayer
 
-**Latest release: [v1.1.14](https://github.com/SergioSSantiago/SSSPlayer/releases/tag/v1.1.14)**  
-Download: `SSSPlayer-1.1.14.vpk`
+**Latest release: [v1.1.15](https://github.com/SergioSSantiago/SSSPlayer/releases/tag/v1.1.15)**  
+Download: `SSSPlayer-1.1.15.vpk`
 
 Music + video media player for PlayStation Vita by **[SergioSSantiago](https://github.com/SergioSSantiago)**.
 
@@ -11,7 +11,7 @@ SSSPlayer brings together a polished music experience (equalizer, visualizer, pl
 |---|---|
 | **TITLEID** | `SSSP00001` |
 | **Developer** | [SergioSSantiago](https://github.com/SergioSSantiago) |
-| **Version** | 1.1.14 |
+| **Version** | 1.1.15 |
 | **Data** | `ux0:data/SSSPlayer/` |
 | **License** | GPL-3.0-only |
 
@@ -52,7 +52,7 @@ After install, put music under `ux0:/music` (or `uma0:/music`) and videos under 
 Ready for submission. See [`docs/STORE.md`](docs/STORE.md) and paste-ready [`docs/store/SUBMIT_PASTE.md`](docs/store/SUBMIT_PASTE.md).
 
 - **Unique TITLEID:** `SSSP00001` (does not clash with VitaWave or VitaMediaDeck/VideoSSS)
-- **Latest VPK:** [SSSPlayer-1.1.14.vpk](https://github.com/SergioSSantiago/SSSPlayer/releases/download/v1.1.14/SSSPlayer-1.1.14.vpk)
+- **Latest VPK:** [SSSPlayer-1.1.15.vpk](https://github.com/SergioSSantiago/SSSPlayer/releases/download/v1.1.15/SSSPlayer-1.1.15.vpk)
 - **Icon:** `assets/icons/icon0.png` (128×128 indexed PNG)
 - **Source:** https://github.com/SergioSSantiago/SSSPlayer
 - **NeoVitaDB:** [PR #11 (Catalog-Test)](https://github.com/robin994/NeoVitaDB-Catalog-Test/pull/11) — id `1941`
@@ -71,7 +71,7 @@ cmake .. -DCMAKE_TOOLCHAIN_FILE=$VITASDK/share/vita.toolchain.cmake -DVITASDK=$V
 make -j$(sysctl -n hw.ncpu)
 ```
 
-The packaged file is `SSSPlayer-1.1.14.vpk` (version embedded in the filename).
+The packaged file is `SSSPlayer-1.1.15.vpk` (version embedded in the filename).
 
 ## License
 
