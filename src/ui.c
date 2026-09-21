@@ -2257,7 +2257,7 @@ void ui_draw_settings(const UIState *ui)
         { "Network Videos" },
         { "YouTube" },
         { "Check for updates" },
-        { "Exit SSSPlayer" },
+        { "Exit SSSPlayer (do not use Home)" },
     };
     int num_rows = 10;
 

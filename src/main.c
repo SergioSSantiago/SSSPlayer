@@ -17,6 +17,7 @@
 #include <psp2/ctrl.h>
 #include <psp2/display.h>
 #include <psp2/power.h>
+#include <psp2/shellutil.h>
 #include <vita2d.h>
 
 #include "audio_engine.h"
@@ -74,32 +75,34 @@ static void fps_limit(uint64_t frame_start_us)
     uint64_t now = sceKernelGetProcessTimeWide();
     uint64_t elapsed = now - frame_start_us;
     if (elapsed < TARGET_FRAME_US) {
-        /* DelayThreadCB so power callbacks can run on this wait too. */
         sceKernelDelayThreadCB((unsigned int)(TARGET_FRAME_US - elapsed));
     }
 }
 
 /*
- * Settings → Exit runs sss_app_run_exit_cleanup() on main.
- * Home previously deadlocked (audio mutex / mid-frame vita2d) and never
- * freed BGM+GXM — that is why Exit worked and Home broke other apps.
- * Both paths now share sss_app_release_system_holds() for those holds.
+ * This app cannot suspend cleanly (vita2d GXM + BGM + net). Calling
+ * vita2d_fini from the Home power-callback corrupts GXM until reboot.
+ * Settings → Exit on the main thread is the only safe shutdown.
+ *
+ * Lock the PS button so Home cannot leave a half-dead process. Unlock
+ * only after the Exit cleanup finishes.
  */
 static volatile int g_exit_cleanup_started;
+static volatile int g_ps_btn_locked;
 static volatile int g_forbid_draw;
 
-static void sss_app_release_system_holds(int from_power_cb)
+static void sss_ps_btn_lock(void)
 {
-    sss_video_shutdown();
-    if (from_power_cb)
-        audio_engine_force_release_system(&g_engine);
-    else
-        audio_engine_destroy(&g_engine);
-    sceAppMgrReleaseBgmPort();
-    sceAppUtilMusicUmount();
-    if (!from_power_cb)
-        vita2d_wait_rendering_done();
-    vita2d_fini();
+    sceShellUtilInitEvents(0);
+    sceShellUtilLock(SCE_SHELL_UTIL_LOCK_TYPE_PS_BTN);
+    g_ps_btn_locked = 1;
+}
+
+static void sss_ps_btn_unlock(void)
+{
+    if (!g_ps_btn_locked) return;
+    sceShellUtilUnlock(SCE_SHELL_UTIL_LOCK_TYPE_PS_BTN);
+    g_ps_btn_locked = 0;
 }
 
 static void sss_app_run_exit_cleanup(void)
@@ -107,7 +110,9 @@ static void sss_app_run_exit_cleanup(void)
     if (g_exit_cleanup_started) return;
     g_exit_cleanup_started = 1;
 
+    sss_video_shutdown();
     ui_touch_term();
+
     theme_manager_free(&g_theme_mgr);
     ui_destroy(&g_ui);
     visualizer_destroy(&g_vis);
@@ -121,56 +126,31 @@ static void sss_app_run_exit_cleanup(void)
         file_browser_destroy(g_browser);
         g_browser = NULL;
     }
+    audio_engine_destroy(&g_engine);
+    sceAppMgrReleaseBgmPort();
     metadata_free(&g_current_meta);
-    sss_app_release_system_holds(0);
+    sceAppUtilMusicUmount();
+    vita2d_wait_rendering_done();
+    vita2d_fini();
+    sss_ps_btn_unlock();
 }
 
-static void home_exit_log(unsigned power_arg, const char *step)
-{
-    SceUID fd = sceIoOpen("ux0:data/SSSPlayer/home_exit.log",
-                          SCE_O_WRONLY | SCE_O_CREAT | SCE_O_APPEND, 0666);
-    if (fd < 0) return;
-    char line[96];
-    int n = snprintf(line, sizeof(line), "0x%08X %s clean=%d\n",
-                     power_arg, step ? step : "?", g_exit_cleanup_started);
-    if (n > 0) sceIoWrite(fd, line, (SceSize)n);
-    sceIoClose(fd);
-}
-
+/* Safety net only: never call vita2d_fini here (that bricks other apps). */
 static int power_callback(int notify_id, int notify_count, int notify_arg,
                           void *common)
 {
-    int i;
-
     (void)notify_id;
     (void)notify_count;
     (void)common;
 
-    if (!(notify_arg & (SCE_POWER_CB_BUTTON_PS_PRESS |
-                        SCE_POWER_CB_APP_SUSPEND |
-                        SCE_POWER_CB_SYSTEM_SUSPEND)))
-        return 0;
-
-    sceIoRemove("ux0:data/SSSPlayer/home_exit.log");
-    g_forbid_draw = 1;
-    g_ui.request_exit = true;
-    home_exit_log((unsigned)notify_arg, "ps");
-    sceAppMgrReleaseBgmPort();
-
-    /* Prefer main running the real Exit cleanup. */
-    for (i = 0; i < 80 && !g_exit_cleanup_started; i++)
-        sceKernelDelayThread(10000);
-
-    if (!g_exit_cleanup_started) {
-        home_exit_log((unsigned)notify_arg, "emergency");
-        g_exit_cleanup_started = 1;
-        sss_app_release_system_holds(1);
-        home_exit_log((unsigned)notify_arg, "released");
-    } else {
-        home_exit_log((unsigned)notify_arg, "main-did-exit");
+    if (notify_arg & (SCE_POWER_CB_BUTTON_PS_PRESS |
+                      SCE_POWER_CB_APP_SUSPEND |
+                      SCE_POWER_CB_SYSTEM_SUSPEND)) {
+        g_forbid_draw = 1;
+        g_ui.request_exit = true;
+        sceAppMgrReleaseBgmPort();
+        audio_engine_force_release_system(&g_engine);
     }
-
-    sceKernelExitProcess(0);
     return 0;
 }
 
@@ -218,6 +198,8 @@ int main(void)
     scePowerSetGpuClockFrequency(222);
     scePowerSetGpuXbarClockFrequency(166);
     register_power_exit_callback();
+    /* Block Home: unclean suspend leaves GXM/BGM held until reboot. */
+    sss_ps_btn_lock();
 
     /* ── vita2d init ── */
     vita2d_init();
@@ -312,7 +294,6 @@ int main(void)
     while (!g_ui.request_exit) {
         uint64_t frame_start = sceKernelGetProcessTimeWide();
 
-        /* Home/PS sets this so we leave the frame before vita2d_fini. */
         if (g_forbid_draw) {
             g_ui.request_exit = true;
             break;
