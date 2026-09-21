@@ -1,4 +1,5 @@
-/* head.bin generation + promote adapted from VitaShell / VitaDeploy (GPL-3.0). */
+/* Exact VitaShell package promote path (GPL-3.0, TheFloW).
+ * loadScePaf → PromoterUtil → scePromoterUtilityPromotePkgWithRif(path, 1). */
 
 #include "system/pkg_promote.h"
 
@@ -12,15 +13,13 @@
 #include <psp2/io/stat.h>
 #include <psp2/kernel/processmgr.h>
 #include <psp2/promoterutil.h>
+#include <psp2/shellutil.h>
 #include <psp2/sysmodule.h>
 
 #include "system/head_bin.h"
 
 #define ntohl __builtin_bswap32
 #define SFO_MAGIC 0x46535000U
-/* Self-update of the running TITLEID can stall forever on sync promote. */
-#define PROMOTE_TIMEOUT_MS 45000
-#define PROMOTE_POLL_MS 200
 
 typedef struct {
 	uint32_t magic;
@@ -86,13 +85,14 @@ static int file_exists(const char *path) {
 	return path && path[0] && sceIoGetstat(path, &st) >= 0;
 }
 
+/* VitaShell loadScePaf — opt.flags must be sizeof(opt), unused = -1. */
 static int load_sce_paf(void) {
 	static uint32_t argp[] = {0x180000, (uint32_t)-1, (uint32_t)-1, 1,
 	                          (uint32_t)-1, (uint32_t)-1};
 	int result = -1;
 	SceSysmoduleOpt opt;
 	memset(&opt, 0, sizeof(opt));
-	opt.flags = sizeof(opt);
+	opt.flags = (int)sizeof(opt);
 	opt.result = &result;
 	opt.unused[0] = -1;
 	opt.unused[1] = -1;
@@ -107,18 +107,23 @@ static int unload_sce_paf(void) {
 	                                               NULL, &opt);
 }
 
+/* VitaShell makeHeadBin — always rewrite head.bin for this package dir. */
 static int make_head_bin(const char *path) {
 	char tmp_path[512];
 	uint8_t *sfo_buffer = NULL;
 	uint8_t *head_bin = NULL;
 	uint8_t hmac[16];
-	char titleid[16];
+	char titleid[12];
 	char contentid[48];
 	char full_title_id[48];
 	uint32_t off, len, out;
 	SceUID fd;
 	int size;
 	int res = -1;
+	size_t i;
+
+	snprintf(tmp_path, sizeof(tmp_path), "%s/sce_sys/package/head.bin", path);
+	sceIoRemove(tmp_path);
 
 	snprintf(tmp_path, sizeof(tmp_path), "%s/sce_sys/param.sfo", path);
 	fd = sceIoOpen(tmp_path, SCE_O_RDONLY, 0);
@@ -142,6 +147,15 @@ static int make_head_bin(const char *path) {
 	if (sfo_string(sfo_buffer, "TITLE_ID", titleid, sizeof(titleid)) < 0) {
 		free(sfo_buffer);
 		return -1;
+	}
+	/* VitaShell enforces 9-char uppercase TITLE_ID. */
+	if (strlen(titleid) != 9) {
+		free(sfo_buffer);
+		return -2;
+	}
+	for (i = 0; i < 9; i++) {
+		if (titleid[i] >= 'a' && titleid[i] <= 'z')
+			titleid[i] = (char)(titleid[i] - 'a' + 'A');
 	}
 	sfo_string(sfo_buffer, "CONTENT_ID", contentid, sizeof(contentid));
 	free(sfo_buffer);
@@ -184,39 +198,11 @@ static int make_head_bin(const char *path) {
 	return res;
 }
 
-static int promote_async_with_timeout(const char *path) {
-	int ret;
-	int state = 1;
-	int result = 0;
-	int waited = 0;
-
-	/* sync=0: do not block the worker forever on self-update. */
-	ret = scePromoterUtilityPromotePkgWithRif(path, 0);
-	if (ret < 0)
-		ret = scePromoterUtilityPromotePkg(path, 0);
-	if (ret < 0) return ret;
-
-	while (waited < PROMOTE_TIMEOUT_MS) {
-		ret = scePromoterUtilityGetState(&state);
-		if (ret < 0) return ret;
-		if (!state) {
-			ret = scePromoterUtilityGetResult(&result);
-			return ret < 0 ? ret : result;
-		}
-		sceKernelDelayThread(PROMOTE_POLL_MS * 1000);
-		waited += PROMOTE_POLL_MS;
-	}
-	/* Timed out — leave promoter; caller falls back to VitaShell. */
-	return -3;
-}
-
+/* VitaShell promoteApp() — sync=1, PAF required, power lock during promote. */
 int sss_pkg_promote(const char *path) {
 	char eboot[512];
 	char sfo[512];
-	char promote_path[320];
-	size_t n;
 	int ret;
-	int paf_loaded = 0;
 
 	if (!path || !path[0]) return -1;
 
@@ -227,33 +213,38 @@ int sss_pkg_promote(const char *path) {
 	ret = make_head_bin(path);
 	if (ret < 0) return ret;
 
-	snprintf(promote_path, sizeof(promote_path), "%s", path);
-	n = strlen(promote_path);
-	if (n + 1 < sizeof(promote_path) && promote_path[n - 1] != '/') {
-		promote_path[n] = '/';
-		promote_path[n + 1] = '\0';
-	}
+	/* VitaShell powerLock(): keep PS button / suspend from interrupting. */
+	sceShellUtilInitEvents(0);
+	sceShellUtilLock(SCE_SHELL_UTIL_LOCK_TYPE_PS_BTN);
+	sceKernelPowerTick(SCE_KERNEL_POWER_TICK_DISABLE_AUTO_SUSPEND);
 
-	if (load_sce_paf() >= 0) paf_loaded = 1;
+	ret = load_sce_paf();
+	if (ret < 0) {
+		sceShellUtilUnlock(SCE_SHELL_UTIL_LOCK_TYPE_PS_BTN);
+		return ret;
+	}
 
 	ret = sceSysmoduleLoadModuleInternal(SCE_SYSMODULE_INTERNAL_PROMOTER_UTIL);
 	if (ret < 0) {
-		if (paf_loaded) unload_sce_paf();
+		unload_sce_paf();
+		sceShellUtilUnlock(SCE_SHELL_UTIL_LOCK_TYPE_PS_BTN);
 		return ret;
 	}
 	ret = scePromoterUtilityInit();
 	if (ret < 0) {
 		sceSysmoduleUnloadModuleInternal(SCE_SYSMODULE_INTERNAL_PROMOTER_UTIL);
-		if (paf_loaded) unload_sce_paf();
+		unload_sce_paf();
+		sceShellUtilUnlock(SCE_SHELL_UTIL_LOCK_TYPE_PS_BTN);
 		return ret;
 	}
 
-	ret = promote_async_with_timeout(promote_path);
-	if (ret < 0 && ret != -3)
-		ret = promote_async_with_timeout(path);
+	sceKernelPowerTick(SCE_KERNEL_POWER_TICK_DISABLE_AUTO_SUSPEND);
+	/* Exact VitaShell: PromotePkgWithRif("ux0:data/pkg", 1). */
+	ret = scePromoterUtilityPromotePkgWithRif(path, 1);
 
 	scePromoterUtilityExit();
 	sceSysmoduleUnloadModuleInternal(SCE_SYSMODULE_INTERNAL_PROMOTER_UTIL);
-	if (paf_loaded) unload_sce_paf();
+	unload_sce_paf();
+	sceShellUtilUnlock(SCE_SHELL_UTIL_LOCK_TYPE_PS_BTN);
 	return ret;
 }

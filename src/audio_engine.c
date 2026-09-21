@@ -264,8 +264,35 @@ static int audio_thread_func(SceSize args, void *argp)
 
         /* ── Ensure we have an open decoder ── */
         if (!e->decoder || e->decoder->state == DECODER_STATE_EOF) {
-            if (e->decoder && e->decoder->state == DECODER_STATE_EOF)
-                e->state = PLAYBACK_STOPPED;
+            /* M4A/AAC often marks EOF after returning a partial last granule
+             * (rc==0). The next loop hits this branch before decode_frames —
+             * must auto-advance here too, otherwise playback stops forever
+             * while FLAC/MP3 (which return rc==1 at EOF) keep working. */
+            if (e->decoder && e->decoder->state == DECODER_STATE_EOF) {
+                if (e->next_dec) {
+                    decoder_close(e->decoder);
+                    e->decoder = e->next_dec;
+                    e->next_dec = NULL;
+                    cf_progress = 0.0f;
+                    e->position_ms = 0;
+                    DecoderInfo ninfo = decoder_get_info(e->decoder);
+                    e->duration_ms = ninfo.duration_ms;
+                    Playlist *pl = get_playlist();
+                    if (pl) {
+                        pl->repeat_mode = e->repeat_mode;
+                        playlist_next(pl);
+                        PlaylistEntry *ne = playlist_get_current(pl);
+                        if (ne)
+                            strncpy(e->current_track, ne->filepath,
+                                    sizeof(e->current_track) - 1);
+                    }
+                    e->track_changed = true;
+                    port_set_rate(e, (int)ninfo.sample_rate);
+                } else {
+                    e->state = PLAYBACK_STOPPED;
+                    e->auto_advance = true;
+                }
+            }
             sceKernelUnlockMutex(e->mutex, 1);
             sceKernelDelayThread(5000);
             continue;

@@ -29,7 +29,7 @@ SSSP00001
 
 **Version**
 ```
-1.1.20
+1.1.21
 ```
 
 **Type / Category** (pick closest to Utility / Media / Application)
@@ -41,7 +41,7 @@ https://github.com/SergioSSantiago/SSSPlayer
 
 **Download URL**
 ```
-https://github.com/SergioSSantiago/SSSPlayer/releases/download/v1.1.20/SSSPlayer-1.1.20.vpk
+https://github.com/SergioSSantiago/SSSPlayer/releases/download/v1.1.21/SSSPlayer-1.1.21.vpk
 ```
 
 **Icon file**
@@ -91,7 +91,7 @@ Credits: built by SergioSSantiago. Thanks to VitaWave and VitaMediaDeck — SSSP
 TITLEID: SSSP00001
 Data: ux0:data/SSSPlayer/
 License: GPL-3.0-only
-Version: 1.1.20
+Version: 1.1.21
 ```
 
 **Screenshots** (upload on-device captures if the form asks)
@@ -103,7 +103,7 @@ Version: 1.1.20
 
 ---
 
-## VitaAlive
+## VitaAlive / PS Vita Alive
 
-Use the **same** values as above. Keep TITLEID `SSSP00001` and the GitHub release URL identical.
-(`vitaalive.com` has been offline; paste the same listing when the mirror returns.)
+Catalog: https://github.com/VegettoSan/PSVitaAlive (`apps/sssplayer.json`).  
+Bump version via PR when shipping a new release. Keep TITLEID `SSSP00001` identical.

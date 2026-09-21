@@ -111,13 +111,19 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Build type" FORCE)
 endif()
 option(SSSPLAYER_ENABLE_LTO "Enable LTO for production Vita builds" OFF)
+option(SSSPLAYER_FAST_DEV "Faster incremental builds (-O2 instead of -O3)" ON)
+if(SSSPLAYER_FAST_DEV)
+  # Override VitaSDK/toolchain Release -O3 so we do not pay both -O3 and -O2.
+  set(CMAKE_C_FLAGS_RELEASE "-O2 -DNDEBUG" CACHE STRING "" FORCE)
+  set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG" CACHE STRING "" FORCE)
+endif()
 
 include("${VITASDK}/share/vita.cmake" REQUIRED)
 
 set(VITA_APP_NAME "SSSPlayer")
 set(VITA_TITLEID  "SSSP00001")
 set(VITA_VERSION  "01.01")
-set(SSSPLAYER_VERSION_LABEL "1.1.18")
+set(SSSPLAYER_VERSION_LABEL "1.1.21")
 set(SSSPLAYER_VPK_NAME "SSSPlayer-${SSSPLAYER_VERSION_LABEL}.vpk")
 
 set(VITA_MKSFOEX_FLAGS
@@ -261,12 +267,14 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 target_compile_options(${PROJECT_NAME} PRIVATE
   -mcpu=cortex-a9 -mfpu=neon -mfloat-abi=hard
   -ffunction-sections -fdata-sections
-  $<$<CONFIG:Release>:-O3>
+  $<$<AND:$<CONFIG:Release>,$<BOOL:${SSSPLAYER_FAST_DEV}>>:-O2>
+  $<$<AND:$<CONFIG:Release>,$<NOT:$<BOOL:${SSSPLAYER_FAST_DEV}>>>:-O3>
   -DSSSPLAYER_VERSION_LABEL=\"${SSSPLAYER_VERSION_LABEL}\")
 target_link_options(${PROJECT_NAME} PRIVATE
   -mcpu=cortex-a9 -mfpu=neon -mfloat-abi=hard
   -Wl,--gc-sections)
 if(SSSPLAYER_ENABLE_LTO)
+  message(WARNING "SSSPLAYER_ENABLE_LTO=ON makes every link ~5+ minutes. Prefer OFF + non-LTO FFmpeg (see docs/BUILD_FAST.md).")
   target_compile_options(${PROJECT_NAME} PRIVATE -flto=4 -fuse-linker-plugin)
   target_link_options(${PROJECT_NAME} PRIVATE -flto=4 -fuse-linker-plugin)
 endif()

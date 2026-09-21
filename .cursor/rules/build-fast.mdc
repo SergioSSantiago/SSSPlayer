@@ -1,0 +1,17 @@
+---
+description: Keep Vita incremental builds fast; never clean/LTO for small changes
+alwaysApply: true
+---
+
+# Fast Vita builds
+
+For small SSSPlayer changes:
+
+- Build with `scripts/quick-vpk.sh` only (incremental).
+- Do **not** delete `build/` or `build/CMakeFiles/SSSPlayer.dir`.
+- Do **not** enable `SSSPLAYER_ENABLE_LTO` or rebuild FFmpeg unless deps changed.
+- Do **not** publish releases / store PRs unless the user asked.
+- **Keep all GitHub releases** — never delete older tags/VPKs.
+- If the linker prints `lto-wrapper` / `LTRANS`, follow `docs/BUILD_FAST.md` (one-time non-LTO FFmpeg rebuild), then resume quick-vpk.
+
+See `AGENTS.md`, `docs/BUILD_FAST.md`, and `docs/RELEASES.md`.

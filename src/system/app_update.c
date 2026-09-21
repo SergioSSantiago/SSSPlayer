@@ -150,16 +150,10 @@ static int fetch_latest(UpdateInfo *out) {
 	return out->asset_url[0] ? 0 : -1;
 }
 
-static int prompt_install(const char *tag) {
+/* VitaShell asks twice: install? then unsafe/homebrew warning. */
+static int prompt_yes_no(const char *title, const char *detail) {
 	SceCtrlData controls, previous;
-	char title[96];
-	char detail[160];
 
-	snprintf(title, sizeof(title), "%s",
-	         vt_i18n_str(VT_STR_UPDATE_AVAILABLE_TITLE));
-	snprintf(detail, sizeof(detail),
-	         vt_i18n_str(VT_STR_UPDATE_AVAILABLE_DETAIL), tag,
-	         SSSPLAYER_VERSION_LABEL);
 	memset(&controls, 0, sizeof(controls));
 	sceCtrlPeekBufferPositive(0, &previous, 1);
 	for (;;) {
@@ -192,6 +186,21 @@ static int prompt_install(const char *tag) {
 		if (pressed & SCE_CTRL_CIRCLE) return 0;
 		sceKernelDelayThread(1000);
 	}
+}
+
+static int prompt_install(const char *tag) {
+	char title[96];
+	char detail[160];
+
+	snprintf(title, sizeof(title), "%s",
+	         vt_i18n_str(VT_STR_UPDATE_AVAILABLE_TITLE));
+	snprintf(detail, sizeof(detail),
+	         vt_i18n_str(VT_STR_UPDATE_AVAILABLE_DETAIL), tag,
+	         SSSPLAYER_VERSION_LABEL);
+	if (!prompt_yes_no(title, detail)) return 0;
+	/* Second confirm — same pattern as VitaShell INSTALL_WARNING. */
+	return prompt_yes_no(vt_i18n_str(VT_STR_UPDATE_WARNING_TITLE),
+	                     vt_i18n_str(VT_STR_UPDATE_WARNING_DETAIL));
 }
 
 static void remove_tree(const char *path) {
@@ -253,8 +262,10 @@ static int install_job_run(void *opaque) {
 	if (!job) return -1;
 	job->stage = 1;
 	sceIoMkdir("ux0:data", 0777);
+	/* VitaShell: removePath(PACKAGE_DIR) then extract into PACKAGE_DIR. */
 	remove_tree(UPDATE_PKG_DIR);
 	if (job->cancel) return -1;
+	sceKernelPowerTick(SCE_KERNEL_POWER_TICK_DISABLE_AUTO_SUSPEND);
 	if (sss_zip_extract(job->vpk_path, UPDATE_PKG_DIR) < 0) {
 		job->result = -10;
 		return -1;
@@ -265,9 +276,11 @@ static int install_job_run(void *opaque) {
 		job->result = -11;
 		return -1;
 	}
-	if (job->cancel) return -1;
+	/* Do not honour cancel once promote starts (VitaShell cannot abort mid-promote). */
 	job->stage = 2;
+	sceKernelPowerTick(SCE_KERNEL_POWER_TICK_DISABLE_AUTO_SUSPEND);
 	job->result = sss_pkg_promote(UPDATE_PKG_DIR);
+	/* VitaShell cleans PACKAGE_DIR after promote (moved/emptied). */
 	remove_tree(UPDATE_PKG_DIR);
 	return job->result < 0 ? -1 : 0;
 }
@@ -305,10 +318,7 @@ static int install_update(const UpdateInfo *info) {
 	                       &install, &install.cancel, &install.stage, NULL);
 	if (result != 0 || install.result < 0) {
 		char detail[96];
-		if (install.result == -3)
-			snprintf(detail, sizeof(detail), "%s",
-			         vt_i18n_str(VT_STR_UPDATE_PROMOTE_TIMEOUT));
-		else if (install.result == -10 || install.result == -11)
+		if (install.result == -10 || install.result == -11)
 			snprintf(detail, sizeof(detail), "%s",
 			         vt_i18n_str(VT_STR_UPDATE_EXTRACT_FAILED));
 		else
@@ -317,13 +327,17 @@ static int install_update(const UpdateInfo *info) {
 		ui_message_show(vt_i18n_str(VT_STR_UPDATE_FAILED_TITLE), detail, 3200);
 		ui_message_show(vt_i18n_str(VT_STR_UPDATE_MANUAL_TITLE),
 		                vt_i18n_str(VT_STR_UPDATE_MANUAL_DETAIL), 5000);
+		/* Keep ux0:SSSPlayer-update.vpk for VitaShell; drop the cache copy. */
 		sceIoRemove(job.destination);
 		return -1;
 	}
 	sceIoRemove(job.destination);
 	sceIoRemove(UPDATE_VPK_FALLBACK);
 	ui_message_show(vt_i18n_str(VT_STR_UPDATE_DONE_TITLE),
-	                vt_i18n_str(VT_STR_UPDATE_DONE_DETAIL), 3600);
+	                vt_i18n_str(VT_STR_UPDATE_DONE_DETAIL), 2000);
+	/* Fresh eboot is on disk; exit so LiveArea relaunches the new build. */
+	sceKernelDelayThread(800 * 1000);
+	sceKernelExitProcess(0);
 	return 0;
 }
 

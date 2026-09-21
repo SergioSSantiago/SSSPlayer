@@ -58,8 +58,8 @@ env VITASDK="$vita_sdk" PATH="$vita_sdk/bin:/usr/bin:/bin" ./configure \
   --ranlib="${tool_prefix}gcc-ranlib" \
   --nm="${tool_prefix}gcc-nm" \
   --disable-runtime-cpudetect --disable-armv5te \
-  --extra-cflags="-O3 -flto -ffunction-sections -fdata-sections -Wno-error=incompatible-pointer-types -Wno-error=enum-int-mismatch" \
-  --extra-ldflags="-flto -Wl,--gc-sections -L$vita_sdk/lib" \
+  --extra-cflags="-O2 -ffunction-sections -fdata-sections -Wno-error=incompatible-pointer-types -Wno-error=enum-int-mismatch" \
+  --extra-ldflags="-Wl,--gc-sections -L$vita_sdk/lib" \
   --disable-shared --enable-static \
   --disable-programs --disable-doc --disable-autodetect --disable-network \
   --disable-avfilter --disable-swscale --disable-swresample --disable-avdevice \
