@@ -9,7 +9,10 @@
 
 #include <psp2/kernel/processmgr.h>
 #include <psp2/kernel/threadmgr.h>
+#include <psp2/kernel/threadmgr/callback.h>
+#include <psp2/io/fcntl.h>
 #include <psp2/io/stat.h>
+#include <psp2/appmgr.h>
 #include <psp2/apputil.h>
 #include <psp2/ctrl.h>
 #include <psp2/display.h>
@@ -75,18 +78,51 @@ static void fps_limit(uint64_t frame_start_us)
     }
 }
 
-/* Same resource release as Settings → Exit SSSPlayer. Home/LiveArea close
- * otherwise skips main()'s cleanup and can leave BGM/network held so apps
- * like VitaShell fail to open until reboot. */
+/* Shared by Settings → Exit and Home (PS) / LiveArea close.
+ * Must release network + BGM + GXM or VitaShell cannot launch until reboot. */
 static volatile int g_exit_cleanup_started;
 
-static void sss_app_release_for_exit(void)
+/* Critical handles only — safe to call from the power-callback thread while
+ * main may still be mid-frame. Heap/UI teardown is optional once we ExitProcess. */
+static void sss_app_release_system_holds(void)
+{
+    sss_video_shutdown();
+    audio_engine_suspend_output(&g_engine);
+    /* Force BGM free even if our acquire flag was wrong. */
+    sceAppMgrReleaseBgmPort();
+    sceAppUtilMusicUmount();
+    vita2d_wait_rendering_done();
+    vita2d_fini();
+}
+
+/* Full Exit path (main thread only — Settings → Exit). */
+static void sss_app_run_exit_cleanup(void)
 {
     if (g_exit_cleanup_started) return;
     g_exit_cleanup_started = 1;
 
     sss_video_shutdown();
-    audio_engine_suspend_output(&g_engine);
+    ui_touch_term();
+
+    theme_manager_free(&g_theme_mgr);
+    ui_destroy(&g_ui);
+    visualizer_destroy(&g_vis);
+    playlist_manager_save(&g_playlist_manager);
+    playlist_manager_destroy(&g_playlist_manager);
+    if (g_playlist) {
+        playlist_destroy(g_playlist);
+        g_playlist = NULL;
+    }
+    if (g_browser) {
+        file_browser_destroy(g_browser);
+        g_browser = NULL;
+    }
+    audio_engine_destroy(&g_engine);
+    sceAppMgrReleaseBgmPort();
+    metadata_free(&g_current_meta);
+    sceAppUtilMusicUmount();
+    vita2d_wait_rendering_done();
+    vita2d_fini();
 }
 
 static int power_callback(int notify_id, int notify_count, int notify_arg,
@@ -96,11 +132,25 @@ static int power_callback(int notify_id, int notify_count, int notify_arg,
     (void)notify_count;
     (void)common;
 
-    /* Home → LiveArea (and swipe-close) delivers APP_SUSPEND before kill. */
-    if (notify_arg & SCE_POWER_CB_APP_SUSPEND) {
-        sss_app_release_for_exit();
-        g_ui.request_exit = true;
-        /* ExitProcess so we never leave a suspended zombie holding ports. */
+    /* PS/Home fires BUTTON_PS_PRESS before APP_SUSPEND. Release the same
+     * system holds Exit frees, then ExitProcess (homebrew cannot suspend). */
+    if (notify_arg & (SCE_POWER_CB_BUTTON_PS_PRESS |
+                      SCE_POWER_CB_APP_SUSPEND |
+                      SCE_POWER_CB_SYSTEM_SUSPEND)) {
+        SceUID fd = sceIoOpen("ux0:data/SSSPlayer/home_exit.log",
+                              SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
+        if (fd >= 0) {
+            char line[64];
+            int n = snprintf(line, sizeof(line), "power=0x%08X\n",
+                             (unsigned)notify_arg);
+            if (n > 0) sceIoWrite(fd, line, (SceSize)n);
+            sceIoClose(fd);
+        }
+        if (!g_exit_cleanup_started) {
+            g_exit_cleanup_started = 1;
+            g_ui.request_exit = true;
+            sss_app_release_system_holds();
+        }
         sceKernelExitProcess(0);
     }
     return 0;
@@ -272,23 +322,7 @@ int main(void)
     }
 
 cleanup:
-    /* Same release as Home/LiveArea close (idempotent). */
-    sss_app_release_for_exit();
-    ui_touch_term();
-
-    theme_manager_free(&g_theme_mgr);
-    ui_destroy(&g_ui);
-    visualizer_destroy(&g_vis);
-    playlist_manager_save(&g_playlist_manager);
-    playlist_manager_destroy(&g_playlist_manager);
-    if (g_playlist) playlist_destroy(g_playlist);
-    if (g_browser)  file_browser_destroy(g_browser);
-    audio_engine_destroy(&g_engine);
-    metadata_free(&g_current_meta);
-    sceAppUtilMusicUmount();
-    vita2d_wait_rendering_done();
-    vita2d_fini();
-
+    sss_app_run_exit_cleanup();
     sceKernelExitProcess(0);
     return 0;
 }
