@@ -119,6 +119,12 @@ int audio_engine_init(AudioEngine *engine);
 void audio_engine_destroy(AudioEngine *engine);
 
 /**
+ * Immediate BGM/port release with no mutex waits. For Home/PS power-callback
+ * exit only — may race the audio thread; process must ExitProcess right after.
+ */
+void audio_engine_force_release_system(AudioEngine *engine);
+
+/**
  * Start (or resume) playback of the given file path.
  * Opens the appropriate decoder and sets state to PLAYBACK_PLAYING.
  */

@@ -613,6 +613,25 @@ void audio_engine_destroy(AudioEngine *e)
     memset(e, 0, sizeof(*e));
 }
 
+void audio_engine_force_release_system(AudioEngine *e)
+{
+    int port;
+
+    if (!e) {
+        sceAppMgrReleaseBgmPort();
+        return;
+    }
+    e->thread_exit = true;
+    e->state = PLAYBACK_STOPPED;
+    e->output_suspended = 1;
+    port = e->port;
+    e->port = -1;
+    if (port >= 0)
+        sceAudioOutReleasePort(port);
+    release_bgm_port();
+    sceAppMgrReleaseBgmPort();
+}
+
 /* ── audio_engine_play ───────────────────────────────────────────────────── */
 
 int audio_engine_play(AudioEngine *e, const char *filepath)

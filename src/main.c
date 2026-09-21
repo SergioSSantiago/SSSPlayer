@@ -79,20 +79,35 @@ static void fps_limit(uint64_t frame_start_us)
     }
 }
 
-/* Settings → Exit and Home/PS must end in the same cleanup on the main thread.
- * Power callback only signals request_exit and waits; if main never runs
- * cleanup (already suspended), it does an emergency release then ExitProcess. */
+/*
+ * Settings → Exit runs sss_app_run_exit_cleanup() on main.
+ * Home previously deadlocked (audio mutex / mid-frame vita2d) and never
+ * freed BGM+GXM — that is why Exit worked and Home broke other apps.
+ * Both paths now share sss_app_release_system_holds() for those holds.
+ */
 static volatile int g_exit_cleanup_started;
-static volatile int g_home_exit_requested;
+static volatile int g_forbid_draw;
+
+static void sss_app_release_system_holds(int from_power_cb)
+{
+    sss_video_shutdown();
+    if (from_power_cb)
+        audio_engine_force_release_system(&g_engine);
+    else
+        audio_engine_destroy(&g_engine);
+    sceAppMgrReleaseBgmPort();
+    sceAppUtilMusicUmount();
+    if (!from_power_cb)
+        vita2d_wait_rendering_done();
+    vita2d_fini();
+}
 
 static void sss_app_run_exit_cleanup(void)
 {
     if (g_exit_cleanup_started) return;
     g_exit_cleanup_started = 1;
 
-    sss_video_shutdown();
     ui_touch_term();
-
     theme_manager_free(&g_theme_mgr);
     ui_destroy(&g_ui);
     visualizer_destroy(&g_vis);
@@ -106,28 +121,26 @@ static void sss_app_run_exit_cleanup(void)
         file_browser_destroy(g_browser);
         g_browser = NULL;
     }
-    audio_engine_destroy(&g_engine);
-    sceAppMgrReleaseBgmPort();
     metadata_free(&g_current_meta);
-    sceAppUtilMusicUmount();
-    vita2d_wait_rendering_done();
-    vita2d_fini();
+    sss_app_release_system_holds(0);
 }
 
-/* Lock-free-ish emergency path if main cannot run Exit cleanup in time. */
-static void sss_app_emergency_release(void)
+static void home_exit_log(unsigned power_arg, const char *step)
 {
-    sceAppMgrReleaseBgmPort();
-    sss_video_shutdown();
-    sceAppUtilMusicUmount();
-    vita2d_fini();
+    SceUID fd = sceIoOpen("ux0:data/SSSPlayer/home_exit.log",
+                          SCE_O_WRONLY | SCE_O_CREAT | SCE_O_APPEND, 0666);
+    if (fd < 0) return;
+    char line[96];
+    int n = snprintf(line, sizeof(line), "0x%08X %s clean=%d\n",
+                     power_arg, step ? step : "?", g_exit_cleanup_started);
+    if (n > 0) sceIoWrite(fd, line, (SceSize)n);
+    sceIoClose(fd);
 }
 
 static int power_callback(int notify_id, int notify_count, int notify_arg,
                           void *common)
 {
     int i;
-    SceUID fd;
 
     (void)notify_id;
     (void)notify_count;
@@ -138,34 +151,25 @@ static int power_callback(int notify_id, int notify_count, int notify_arg,
                         SCE_POWER_CB_SYSTEM_SUSPEND)))
         return 0;
 
-    fd = sceIoOpen("ux0:data/SSSPlayer/home_exit.log",
-                   SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
-    if (fd >= 0) {
-        char line[80];
-        int n = snprintf(line, sizeof(line), "power=0x%08X home=%d clean=%d\n",
-                         (unsigned)notify_arg, g_home_exit_requested,
-                         g_exit_cleanup_started);
-        if (n > 0) sceIoWrite(fd, line, (SceSize)n);
-        sceIoClose(fd);
-    }
-
-    /* Same trigger as Settings → Exit: main loop checks request_exit. */
-    g_home_exit_requested = 1;
+    sceIoRemove("ux0:data/SSSPlayer/home_exit.log");
+    g_forbid_draw = 1;
     g_ui.request_exit = true;
+    home_exit_log((unsigned)notify_arg, "ps");
+    sceAppMgrReleaseBgmPort();
 
-    /* Give main time to leave the frame loop and run the Exit cleanup. */
-    for (i = 0; i < 200 && !g_exit_cleanup_started; i++)
-        sceKernelDelayThread(10000); /* up to ~2s */
+    /* Prefer main running the real Exit cleanup. */
+    for (i = 0; i < 80 && !g_exit_cleanup_started; i++)
+        sceKernelDelayThread(10000);
 
     if (!g_exit_cleanup_started) {
+        home_exit_log((unsigned)notify_arg, "emergency");
         g_exit_cleanup_started = 1;
-        sss_app_emergency_release();
-        sceKernelExitProcess(0);
+        sss_app_release_system_holds(1);
+        home_exit_log((unsigned)notify_arg, "released");
+    } else {
+        home_exit_log((unsigned)notify_arg, "main-did-exit");
     }
 
-    /* Main owns cleanup — wait for its ExitProcess; fallback if it stalls. */
-    for (i = 0; i < 300; i++)
-        sceKernelDelayThread(10000);
     sceKernelExitProcess(0);
     return 0;
 }
@@ -308,6 +312,12 @@ int main(void)
     while (!g_ui.request_exit) {
         uint64_t frame_start = sceKernelGetProcessTimeWide();
 
+        /* Home/PS sets this so we leave the frame before vita2d_fini. */
+        if (g_forbid_draw) {
+            g_ui.request_exit = true;
+            break;
+        }
+
         /* Handle input */
         ui_handle_input(&g_ui, &g_engine, g_playlist, g_browser, &g_vis);
 
@@ -326,6 +336,10 @@ int main(void)
         }
 
         /* Render */
+        if (g_forbid_draw) {
+            g_ui.request_exit = true;
+            break;
+        }
         vita2d_start_drawing();
         vita2d_clear_screen();
         ui_render(&g_ui, &g_engine, g_playlist, g_browser, &g_vis);
