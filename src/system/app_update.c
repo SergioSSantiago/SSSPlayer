@@ -27,9 +27,8 @@
 
 #define UPDATE_API_URL \
 	"https://api.github.com/repos/SergioSSantiago/SSSPlayer/releases/latest"
-/* Clear name on ux0: root for VitaShell. Never promote in-process. */
-#define UPDATE_VPK_UX0 "ux0:SSSPlayer.vpk"
 #define UPDATE_LEGACY_VPK "ux0:SSSPlayer-update.vpk"
+#define UPDATE_LEGACY_PLAIN "ux0:SSSPlayer.vpk"
 #define UPDATE_CACHE_DIR "ux0:data/SSSPlayer/update"
 
 typedef struct {
@@ -52,6 +51,13 @@ static int version_is_newer(const char *remote, const char *local) {
 	if (ra != la) return ra > la;
 	if (rb != lb) return rb > lb;
 	return rc > lc;
+}
+
+/* Strip leading 'v' → "1.2.3" for filenames. */
+static void version_label(const char *tag, char *out, size_t out_size) {
+	const char *p = tag ? tag : "";
+	if (p[0] == 'v' || p[0] == 'V') p++;
+	snprintf(out, out_size, "%s", p[0] ? p : "update");
 }
 
 typedef struct {
@@ -220,24 +226,33 @@ static int copy_file(const char *src, const char *dst) {
 
 static void remove_legacy_updater_vpk(void) {
 	sceIoRemove(UPDATE_LEGACY_VPK);
+	sceIoRemove(UPDATE_LEGACY_PLAIN);
 	sceIoRemove("ux0:data/SSSPlayer/update/SSSPlayer-update.vpk");
+	sceIoRemove("ux0:data/SSSPlayer/update/SSSPlayer.vpk");
 }
 
-/* Download only — user installs with VitaShell (same TITLEID cannot self-promote
- * reliably). Leaves ux0:SSSPlayer.vpk. */
+/* Download only — leaves ux0:SSSPlayer-<version>.vpk for VitaShell. */
 static int download_update(const UpdateInfo *info) {
 	VtDownloadJob job;
 	int result;
 	char cache_path[320];
+	char ver[32];
+	char vpk_name[64];
+	char ux0_path[96];
+	char ready_detail[160];
+
+	version_label(info->tag, ver, sizeof(ver));
+	snprintf(vpk_name, sizeof(vpk_name), "SSSPlayer-%s.vpk", ver);
+	snprintf(ux0_path, sizeof(ux0_path), "ux0:%s", vpk_name);
 
 	remove_legacy_updater_vpk();
 	sceIoMkdir("ux0:data/SSSPlayer", 0777);
 	sceIoMkdir(UPDATE_CACHE_DIR, 0777);
-	sceIoRemove(UPDATE_VPK_UX0);
+	sceIoRemove(ux0_path);
 
 	vt_download_job_init_url(&job, info->asset_url);
 	vt_download_job_set_destination(&job, UPDATE_CACHE_DIR);
-	vt_download_job_set_filename(&job, "SSSPlayer.vpk");
+	vt_download_job_set_filename(&job, vpk_name);
 	result = ui_loading_run_download(
 	    vt_i18n_str(VT_STR_UPDATE_DOWNLOADING), vt_download_run, &job,
 	    &job.paused, &job.cancel, &job.progress_current, &job.progress_total);
@@ -249,15 +264,16 @@ static int download_update(const UpdateInfo *info) {
 	}
 
 	snprintf(cache_path, sizeof(cache_path), "%s", job.destination);
-	if (copy_file(cache_path, UPDATE_VPK_UX0) < 0) {
+	if (copy_file(cache_path, ux0_path) < 0) {
 		ui_message_show(vt_i18n_str(VT_STR_UPDATE_FAILED_TITLE),
 		                vt_i18n_str(VT_STR_UPDATE_COPY_FAILED), 3200);
 		return -1;
 	}
 	sceIoRemove(cache_path);
 
-	ui_message_show(vt_i18n_str(VT_STR_UPDATE_READY_TITLE),
-	                vt_i18n_str(VT_STR_UPDATE_READY_DETAIL), 5000);
+	snprintf(ready_detail, sizeof(ready_detail),
+	         vt_i18n_str(VT_STR_UPDATE_READY_DETAIL), ux0_path);
+	ui_message_show(vt_i18n_str(VT_STR_UPDATE_READY_TITLE), ready_detail, 5500);
 	return 0;
 }
 

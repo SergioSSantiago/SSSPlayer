@@ -74,28 +74,17 @@ static void fps_limit(uint64_t frame_start_us)
     uint64_t now = sceKernelGetProcessTimeWide();
     uint64_t elapsed = now - frame_start_us;
     if (elapsed < TARGET_FRAME_US) {
-        sceKernelDelayThread((unsigned int)(TARGET_FRAME_US - elapsed));
+        /* DelayThreadCB so power callbacks can run on this wait too. */
+        sceKernelDelayThreadCB((unsigned int)(TARGET_FRAME_US - elapsed));
     }
 }
 
-/* Shared by Settings → Exit and Home (PS) / LiveArea close.
- * Must release network + BGM + GXM or VitaShell cannot launch until reboot. */
+/* Settings → Exit and Home/PS must end in the same cleanup on the main thread.
+ * Power callback only signals request_exit and waits; if main never runs
+ * cleanup (already suspended), it does an emergency release then ExitProcess. */
 static volatile int g_exit_cleanup_started;
+static volatile int g_home_exit_requested;
 
-/* Critical handles only — safe to call from the power-callback thread while
- * main may still be mid-frame. Heap/UI teardown is optional once we ExitProcess. */
-static void sss_app_release_system_holds(void)
-{
-    sss_video_shutdown();
-    audio_engine_suspend_output(&g_engine);
-    /* Force BGM free even if our acquire flag was wrong. */
-    sceAppMgrReleaseBgmPort();
-    sceAppUtilMusicUmount();
-    vita2d_wait_rendering_done();
-    vita2d_fini();
-}
-
-/* Full Exit path (main thread only — Settings → Exit). */
 static void sss_app_run_exit_cleanup(void)
 {
     if (g_exit_cleanup_started) return;
@@ -125,38 +114,62 @@ static void sss_app_run_exit_cleanup(void)
     vita2d_fini();
 }
 
+/* Lock-free-ish emergency path if main cannot run Exit cleanup in time. */
+static void sss_app_emergency_release(void)
+{
+    sceAppMgrReleaseBgmPort();
+    sss_video_shutdown();
+    sceAppUtilMusicUmount();
+    vita2d_fini();
+}
+
 static int power_callback(int notify_id, int notify_count, int notify_arg,
                           void *common)
 {
+    int i;
+    SceUID fd;
+
     (void)notify_id;
     (void)notify_count;
     (void)common;
 
-    /* PS/Home fires BUTTON_PS_PRESS before APP_SUSPEND. Release the same
-     * system holds Exit frees, then ExitProcess (homebrew cannot suspend). */
-    if (notify_arg & (SCE_POWER_CB_BUTTON_PS_PRESS |
-                      SCE_POWER_CB_APP_SUSPEND |
-                      SCE_POWER_CB_SYSTEM_SUSPEND)) {
-        SceUID fd = sceIoOpen("ux0:data/SSSPlayer/home_exit.log",
-                              SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
-        if (fd >= 0) {
-            char line[64];
-            int n = snprintf(line, sizeof(line), "power=0x%08X\n",
-                             (unsigned)notify_arg);
-            if (n > 0) sceIoWrite(fd, line, (SceSize)n);
-            sceIoClose(fd);
-        }
-        if (!g_exit_cleanup_started) {
-            g_exit_cleanup_started = 1;
-            g_ui.request_exit = true;
-            sss_app_release_system_holds();
-        }
+    if (!(notify_arg & (SCE_POWER_CB_BUTTON_PS_PRESS |
+                        SCE_POWER_CB_APP_SUSPEND |
+                        SCE_POWER_CB_SYSTEM_SUSPEND)))
+        return 0;
+
+    fd = sceIoOpen("ux0:data/SSSPlayer/home_exit.log",
+                   SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
+    if (fd >= 0) {
+        char line[80];
+        int n = snprintf(line, sizeof(line), "power=0x%08X home=%d clean=%d\n",
+                         (unsigned)notify_arg, g_home_exit_requested,
+                         g_exit_cleanup_started);
+        if (n > 0) sceIoWrite(fd, line, (SceSize)n);
+        sceIoClose(fd);
+    }
+
+    /* Same trigger as Settings → Exit: main loop checks request_exit. */
+    g_home_exit_requested = 1;
+    g_ui.request_exit = true;
+
+    /* Give main time to leave the frame loop and run the Exit cleanup. */
+    for (i = 0; i < 200 && !g_exit_cleanup_started; i++)
+        sceKernelDelayThread(10000); /* up to ~2s */
+
+    if (!g_exit_cleanup_started) {
+        g_exit_cleanup_started = 1;
+        sss_app_emergency_release();
         sceKernelExitProcess(0);
     }
+
+    /* Main owns cleanup — wait for its ExitProcess; fallback if it stalls. */
+    for (i = 0; i < 300; i++)
+        sceKernelDelayThread(10000);
+    sceKernelExitProcess(0);
     return 0;
 }
 
-/* Power callbacks only fire on a thread that waits with DelayThreadCB. */
 static int power_callback_thread(SceSize args, void *argp)
 {
     SceUID cbid;
@@ -175,7 +188,7 @@ static void register_power_exit_callback(void)
 {
     SceUID thid = sceKernelCreateThread("sss_power_cb_th",
                                         power_callback_thread, 0x10000100,
-                                        0x10000, 0, 0, NULL);
+                                        0x4000, 0, 0, NULL);
     if (thid >= 0)
         sceKernelStartThread(thid, 0, NULL);
 }
