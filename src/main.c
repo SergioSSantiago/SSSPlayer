@@ -75,6 +75,61 @@ static void fps_limit(uint64_t frame_start_us)
     }
 }
 
+/* Same resource release as Settings → Exit SSSPlayer. Home/LiveArea close
+ * otherwise skips main()'s cleanup and can leave BGM/network held so apps
+ * like VitaShell fail to open until reboot. */
+static volatile int g_exit_cleanup_started;
+
+static void sss_app_release_for_exit(void)
+{
+    if (g_exit_cleanup_started) return;
+    g_exit_cleanup_started = 1;
+
+    sss_video_shutdown();
+    audio_engine_suspend_output(&g_engine);
+}
+
+static int power_callback(int notify_id, int notify_count, int notify_arg,
+                          void *common)
+{
+    (void)notify_id;
+    (void)notify_count;
+    (void)common;
+
+    /* Home → LiveArea (and swipe-close) delivers APP_SUSPEND before kill. */
+    if (notify_arg & SCE_POWER_CB_APP_SUSPEND) {
+        sss_app_release_for_exit();
+        g_ui.request_exit = true;
+        /* ExitProcess so we never leave a suspended zombie holding ports. */
+        sceKernelExitProcess(0);
+    }
+    return 0;
+}
+
+/* Power callbacks only fire on a thread that waits with DelayThreadCB. */
+static int power_callback_thread(SceSize args, void *argp)
+{
+    SceUID cbid;
+
+    (void)args;
+    (void)argp;
+    cbid = sceKernelCreateCallback("sss_power_cb", 0, power_callback, NULL);
+    if (cbid >= 0)
+        scePowerRegisterCallback(cbid);
+    for (;;)
+        sceKernelDelayThreadCB(10 * 1000 * 1000);
+    return 0;
+}
+
+static void register_power_exit_callback(void)
+{
+    SceUID thid = sceKernelCreateThread("sss_power_cb_th",
+                                        power_callback_thread, 0x10000100,
+                                        0x10000, 0, 0, NULL);
+    if (thid >= 0)
+        sceKernelStartThread(thid, 0, NULL);
+}
+
 /* ── Application entry point ─────────────────────────────────────────────── */
 int main(void)
 {
@@ -95,6 +150,7 @@ int main(void)
     scePowerSetBusClockFrequency(222);
     scePowerSetGpuClockFrequency(222);
     scePowerSetGpuXbarClockFrequency(166);
+    register_power_exit_callback();
 
     /* ── vita2d init ── */
     vita2d_init();
@@ -216,8 +272,8 @@ int main(void)
     }
 
 cleanup:
-    /* Stop video/network workers and release sceNet before destroying GXM. */
-    sss_video_shutdown();
+    /* Same release as Home/LiveArea close (idempotent). */
+    sss_app_release_for_exit();
     ui_touch_term();
 
     theme_manager_free(&g_theme_mgr);

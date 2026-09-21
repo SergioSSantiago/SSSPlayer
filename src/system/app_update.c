@@ -6,18 +6,15 @@
 
 #include <jansson.h>
 #include <psp2/ctrl.h>
-#include <psp2/io/dirent.h>
 #include <psp2/io/fcntl.h>
 #include <psp2/io/stat.h>
 #include <psp2/kernel/processmgr.h>
 #include <vita2d.h>
 #include <vita_https.h>
 
-#include "common/zip_extract.h"
 #include "i18n/i18n.h"
 #include "network/download_manager.h"
 #include "settings/preferences.h"
-#include "system/pkg_promote.h"
 #include "ui/brand.h"
 #include "ui/components.h"
 #include "ui/loading_screen.h"
@@ -30,11 +27,10 @@
 
 #define UPDATE_API_URL \
 	"https://api.github.com/repos/SergioSSantiago/SSSPlayer/releases/latest"
-#define UPDATE_VPK_PATH "ux0:data/SSSPlayer/update/SSSPlayer-update.vpk"
-#define UPDATE_VPK_FALLBACK "ux0:SSSPlayer-update.vpk"
-/* Same short package dir VitaShell uses — promoter is picky about paths. */
-#define UPDATE_PKG_DIR "ux0:data/pkg"
-#define UPDATE_DIR "ux0:data/SSSPlayer/update"
+/* Clear name on ux0: root for VitaShell. Never promote in-process. */
+#define UPDATE_VPK_UX0 "ux0:SSSPlayer.vpk"
+#define UPDATE_LEGACY_VPK "ux0:SSSPlayer-update.vpk"
+#define UPDATE_CACHE_DIR "ux0:data/SSSPlayer/update"
 
 typedef struct {
 	char tag[32];
@@ -126,31 +122,28 @@ static int fetch_latest(UpdateInfo *out) {
 	free(buffer.data);
 	if (!root) return -1;
 	tag = json_object_get(root, "tag_name");
-	if (!json_is_string(tag)) {
-		json_decref(root);
-		return -1;
-	}
-	snprintf(out->tag, sizeof(out->tag), "%s", json_string_value(tag));
+	if (json_is_string(tag))
+		snprintf(out->tag, sizeof(out->tag), "%s", json_string_value(tag));
 	assets = json_object_get(root, "assets");
 	if (json_is_array(assets)) {
 		for (i = 0; i < json_array_size(assets); i++) {
 			json_t *asset = json_array_get(assets, i);
-			const char *name =
-			    json_string_value(json_object_get(asset, "name"));
-			const char *url = json_string_value(
-			    json_object_get(asset, "browser_download_url"));
-			if (!name || !url) continue;
-			if (!strstr(name, ".vpk")) continue;
-			snprintf(out->asset_name, sizeof(out->asset_name), "%s", name);
-			snprintf(out->asset_url, sizeof(out->asset_url), "%s", url);
-			break;
+			json_t *name = json_object_get(asset, "name");
+			json_t *url = json_object_get(asset, "browser_download_url");
+			const char *n = json_is_string(name) ? json_string_value(name) : "";
+			if (!json_is_string(url)) continue;
+			if (strstr(n, ".vpk") || strstr(n, ".VPK")) {
+				snprintf(out->asset_name, sizeof(out->asset_name), "%s", n);
+				snprintf(out->asset_url, sizeof(out->asset_url), "%s",
+				         json_string_value(url));
+				break;
+			}
 		}
 	}
 	json_decref(root);
 	return out->asset_url[0] ? 0 : -1;
 }
 
-/* VitaShell asks twice: install? then unsafe/homebrew warning. */
 static int prompt_yes_no(const char *title, const char *detail) {
 	SceCtrlData controls, previous;
 
@@ -171,10 +164,10 @@ static int prompt_yes_no(const char *title, const char *detail) {
 		if (small)
 			ui_font_draw_text(small, 196, 258, VT_THEME_TEXT_MUTED,
 			                  UI_FONT_SMALL, detail);
-		ui_action_button(196, 300, 260, 48, VT_THEME_SIGNAL,
-		                 "Cross", vt_i18n_str(VT_STR_UPDATE_INSTALL), 1);
-		ui_action_button(484, 300, 260, 48, VT_THEME_SURFACE,
-		                 "Circle", vt_i18n_str(VT_STR_UPDATE_LATER), 0);
+		ui_action_button(196, 300, 260, 48, VT_THEME_SIGNAL, "Cross",
+		                 vt_i18n_str(VT_STR_UPDATE_DOWNLOAD), 1);
+		ui_action_button(484, 300, 260, 48, VT_THEME_SURFACE, "Circle",
+		                 vt_i18n_str(VT_STR_UPDATE_LATER), 0);
 		vita2d_end_drawing();
 		vita2d_wait_rendering_done();
 		vita2d_swap_buffers();
@@ -188,7 +181,7 @@ static int prompt_yes_no(const char *title, const char *detail) {
 	}
 }
 
-static int prompt_install(const char *tag) {
+static int prompt_download(const char *tag) {
 	char title[96];
 	char detail[160];
 
@@ -197,29 +190,7 @@ static int prompt_install(const char *tag) {
 	snprintf(detail, sizeof(detail),
 	         vt_i18n_str(VT_STR_UPDATE_AVAILABLE_DETAIL), tag,
 	         SSSPLAYER_VERSION_LABEL);
-	if (!prompt_yes_no(title, detail)) return 0;
-	/* Second confirm — same pattern as VitaShell INSTALL_WARNING. */
-	return prompt_yes_no(vt_i18n_str(VT_STR_UPDATE_WARNING_TITLE),
-	                     vt_i18n_str(VT_STR_UPDATE_WARNING_DETAIL));
-}
-
-static void remove_tree(const char *path) {
-	SceUID dir = sceIoDopen(path);
-	if (dir >= 0) {
-		SceIoDirent ent;
-		while (sceIoDread(dir, &ent) > 0) {
-			char child[512];
-			if (!strcmp(ent.d_name, ".") || !strcmp(ent.d_name, ".."))
-				continue;
-			snprintf(child, sizeof(child), "%s/%s", path, ent.d_name);
-			if (SCE_S_ISDIR(ent.d_stat.st_mode)) remove_tree(child);
-			else sceIoRemove(child);
-		}
-		sceIoDclose(dir);
-		sceIoRmdir(path);
-	} else {
-		sceIoRemove(path);
-	}
+	return prompt_yes_no(title, detail);
 }
 
 static int copy_file(const char *src, const char *dst) {
@@ -247,57 +218,26 @@ static int copy_file(const char *src, const char *dst) {
 	return n < 0 ? n : 0;
 }
 
-typedef struct {
-	char vpk_path[512];
-	volatile long stage; /* 1=extract 2=promote */
-	volatile int cancel;
-	int result;
-} InstallJob;
-
-static int install_job_run(void *opaque) {
-	InstallJob *job = opaque;
-	char eboot_check[320];
-	SceIoStat st;
-
-	if (!job) return -1;
-	job->stage = 1;
-	sceIoMkdir("ux0:data", 0777);
-	/* VitaShell: removePath(PACKAGE_DIR) then extract into PACKAGE_DIR. */
-	remove_tree(UPDATE_PKG_DIR);
-	if (job->cancel) return -1;
-	sceKernelPowerTick(SCE_KERNEL_POWER_TICK_DISABLE_AUTO_SUSPEND);
-	if (sss_zip_extract(job->vpk_path, UPDATE_PKG_DIR) < 0) {
-		job->result = -10;
-		return -1;
-	}
-	snprintf(eboot_check, sizeof(eboot_check), "%s/eboot.bin", UPDATE_PKG_DIR);
-	memset(&st, 0, sizeof(st));
-	if (sceIoGetstat(eboot_check, &st) < 0) {
-		job->result = -11;
-		return -1;
-	}
-	/* Do not honour cancel once promote starts (VitaShell cannot abort mid-promote). */
-	job->stage = 2;
-	sceKernelPowerTick(SCE_KERNEL_POWER_TICK_DISABLE_AUTO_SUSPEND);
-	job->result = sss_pkg_promote(UPDATE_PKG_DIR);
-	/* VitaShell cleans PACKAGE_DIR after promote (moved/emptied). */
-	remove_tree(UPDATE_PKG_DIR);
-	return job->result < 0 ? -1 : 0;
+static void remove_legacy_updater_vpk(void) {
+	sceIoRemove(UPDATE_LEGACY_VPK);
+	sceIoRemove("ux0:data/SSSPlayer/update/SSSPlayer-update.vpk");
 }
 
-static int install_update(const UpdateInfo *info) {
+/* Download only — user installs with VitaShell (same TITLEID cannot self-promote
+ * reliably). Leaves ux0:SSSPlayer.vpk. */
+static int download_update(const UpdateInfo *info) {
 	VtDownloadJob job;
-	InstallJob install;
 	int result;
+	char cache_path[320];
 
+	remove_legacy_updater_vpk();
 	sceIoMkdir("ux0:data/SSSPlayer", 0777);
-	sceIoMkdir(UPDATE_DIR, 0777);
-	remove_tree(UPDATE_PKG_DIR);
-	sceIoRemove(UPDATE_VPK_PATH);
+	sceIoMkdir(UPDATE_CACHE_DIR, 0777);
+	sceIoRemove(UPDATE_VPK_UX0);
 
 	vt_download_job_init_url(&job, info->asset_url);
-	vt_download_job_set_destination(&job, UPDATE_DIR);
-	vt_download_job_set_filename(&job, "SSSPlayer-update.vpk");
+	vt_download_job_set_destination(&job, UPDATE_CACHE_DIR);
+	vt_download_job_set_filename(&job, "SSSPlayer.vpk");
 	result = ui_loading_run_download(
 	    vt_i18n_str(VT_STR_UPDATE_DOWNLOADING), vt_download_run, &job,
 	    &job.paused, &job.cancel, &job.progress_current, &job.progress_total);
@@ -308,42 +248,23 @@ static int install_update(const UpdateInfo *info) {
 		return -1;
 	}
 
-	/* Keep a VitaShell-ready copy before promote (self-update can hang). */
-	copy_file(job.destination, UPDATE_VPK_FALLBACK);
-
-	memset(&install, 0, sizeof(install));
-	snprintf(install.vpk_path, sizeof(install.vpk_path), "%s", job.destination);
-	install.stage = 1;
-	result = ui_loading_run(vt_i18n_str(VT_STR_UPDATE_INSTALLING), install_job_run,
-	                       &install, &install.cancel, &install.stage, NULL);
-	if (result != 0 || install.result < 0) {
-		char detail[96];
-		if (install.result == -10 || install.result == -11)
-			snprintf(detail, sizeof(detail), "%s",
-			         vt_i18n_str(VT_STR_UPDATE_EXTRACT_FAILED));
-		else
-			snprintf(detail, sizeof(detail), "0x%08X",
-			         (unsigned)install.result);
-		ui_message_show(vt_i18n_str(VT_STR_UPDATE_FAILED_TITLE), detail, 3200);
-		ui_message_show(vt_i18n_str(VT_STR_UPDATE_MANUAL_TITLE),
-		                vt_i18n_str(VT_STR_UPDATE_MANUAL_DETAIL), 5000);
-		/* Keep ux0:SSSPlayer-update.vpk for VitaShell; drop the cache copy. */
-		sceIoRemove(job.destination);
+	snprintf(cache_path, sizeof(cache_path), "%s", job.destination);
+	if (copy_file(cache_path, UPDATE_VPK_UX0) < 0) {
+		ui_message_show(vt_i18n_str(VT_STR_UPDATE_FAILED_TITLE),
+		                vt_i18n_str(VT_STR_UPDATE_COPY_FAILED), 3200);
 		return -1;
 	}
-	sceIoRemove(job.destination);
-	sceIoRemove(UPDATE_VPK_FALLBACK);
-	ui_message_show(vt_i18n_str(VT_STR_UPDATE_DONE_TITLE),
-	                vt_i18n_str(VT_STR_UPDATE_DONE_DETAIL), 2000);
-	/* Fresh eboot is on disk; exit so LiveArea relaunches the new build. */
-	sceKernelDelayThread(800 * 1000);
-	sceKernelExitProcess(0);
+	sceIoRemove(cache_path);
+
+	ui_message_show(vt_i18n_str(VT_STR_UPDATE_READY_TITLE),
+	                vt_i18n_str(VT_STR_UPDATE_READY_DETAIL), 5000);
 	return 0;
 }
 
 void sss_app_update_check_on_launch(void) {
 	UpdateInfo info;
 
+	remove_legacy_updater_vpk();
 	vt_preferences_init();
 	vt_i18n_init();
 	if (ui_runtime_attach_existing() < 0) {
@@ -355,13 +276,14 @@ void sss_app_update_check_on_launch(void) {
 	if (!vita_https_is_connected()) return;
 	if (fetch_latest(&info) < 0) return;
 	if (!version_is_newer(info.tag, SSSPLAYER_VERSION_LABEL)) return;
-	if (!prompt_install(info.tag)) return;
-	install_update(&info);
+	if (!prompt_download(info.tag)) return;
+	download_update(&info);
 }
 
 void sss_app_update_check_manual(void) {
 	UpdateInfo info;
 
+	remove_legacy_updater_vpk();
 	vt_preferences_init();
 	vt_i18n_init();
 	if (ui_runtime_attach_existing() < 0) {
@@ -390,6 +312,6 @@ void sss_app_update_check_manual(void) {
 		                2800);
 		return;
 	}
-	if (!prompt_install(info.tag)) return;
-	install_update(&info);
+	if (!prompt_download(info.tag)) return;
+	download_update(&info);
 }
