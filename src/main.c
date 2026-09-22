@@ -9,8 +9,6 @@
 
 #include <psp2/kernel/processmgr.h>
 #include <psp2/kernel/threadmgr.h>
-#include <psp2/kernel/threadmgr/callback.h>
-#include <psp2/io/fcntl.h>
 #include <psp2/io/stat.h>
 #include <psp2/appmgr.h>
 #include <psp2/apputil.h>
@@ -80,16 +78,15 @@ static void fps_limit(uint64_t frame_start_us)
 }
 
 /*
- * This app cannot suspend cleanly (vita2d GXM + BGM + net). Calling
- * vita2d_fini from the Home power-callback corrupts GXM until reboot.
- * Settings → Exit on the main thread is the only safe shutdown.
+ * Home/PS cannot suspend this app cleanly (vita2d GXM). Settings → Exit on
+ * the main thread is the only safe quit. Lock PS so Home cannot leave a
+ * half-dead process; unlock only after Exit cleanup.
  *
- * Lock the PS button so Home cannot leave a half-dead process. Unlock
- * only after the Exit cleanup finishes.
+ * Do NOT hook APP_SUSPEND / power-button sleep here: short-press power must
+ * keep BGM so music continues with the screen off.
  */
 static volatile int g_exit_cleanup_started;
 static volatile int g_ps_btn_locked;
-static volatile int g_forbid_draw;
 
 static void sss_ps_btn_lock(void)
 {
@@ -135,48 +132,6 @@ static void sss_app_run_exit_cleanup(void)
     sss_ps_btn_unlock();
 }
 
-/* Safety net only: never call vita2d_fini here (that bricks other apps). */
-static int power_callback(int notify_id, int notify_count, int notify_arg,
-                          void *common)
-{
-    (void)notify_id;
-    (void)notify_count;
-    (void)common;
-
-    if (notify_arg & (SCE_POWER_CB_BUTTON_PS_PRESS |
-                      SCE_POWER_CB_APP_SUSPEND |
-                      SCE_POWER_CB_SYSTEM_SUSPEND)) {
-        g_forbid_draw = 1;
-        g_ui.request_exit = true;
-        sceAppMgrReleaseBgmPort();
-        audio_engine_force_release_system(&g_engine);
-    }
-    return 0;
-}
-
-static int power_callback_thread(SceSize args, void *argp)
-{
-    SceUID cbid;
-
-    (void)args;
-    (void)argp;
-    cbid = sceKernelCreateCallback("sss_power_cb", 0, power_callback, NULL);
-    if (cbid >= 0)
-        scePowerRegisterCallback(cbid);
-    for (;;)
-        sceKernelDelayThreadCB(10 * 1000 * 1000);
-    return 0;
-}
-
-static void register_power_exit_callback(void)
-{
-    SceUID thid = sceKernelCreateThread("sss_power_cb_th",
-                                        power_callback_thread, 0x10000100,
-                                        0x4000, 0, 0, NULL);
-    if (thid >= 0)
-        sceKernelStartThread(thid, 0, NULL);
-}
-
 /* ── Application entry point ─────────────────────────────────────────────── */
 int main(void)
 {
@@ -197,8 +152,7 @@ int main(void)
     scePowerSetBusClockFrequency(222);
     scePowerSetGpuClockFrequency(222);
     scePowerSetGpuXbarClockFrequency(166);
-    register_power_exit_callback();
-    /* Block Home: unclean suspend leaves GXM/BGM held until reboot. */
+    /* Block Home only. Do not register power callbacks — sleep must keep BGM. */
     sss_ps_btn_lock();
 
     /* ── vita2d init ── */
@@ -294,11 +248,6 @@ int main(void)
     while (!g_ui.request_exit) {
         uint64_t frame_start = sceKernelGetProcessTimeWide();
 
-        if (g_forbid_draw) {
-            g_ui.request_exit = true;
-            break;
-        }
-
         /* Handle input */
         ui_handle_input(&g_ui, &g_engine, g_playlist, g_browser, &g_vis);
 
@@ -317,10 +266,6 @@ int main(void)
         }
 
         /* Render */
-        if (g_forbid_draw) {
-            g_ui.request_exit = true;
-            break;
-        }
         vita2d_start_drawing();
         vita2d_clear_screen();
         ui_render(&g_ui, &g_engine, g_playlist, g_browser, &g_vis);
