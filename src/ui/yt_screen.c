@@ -542,15 +542,14 @@ static int resolve_and_act(const YtSearchResult *item, UiYtSelection *selection,
 		snprintf(selection->video_id, sizeof(selection->video_id), "%s",
 		         item->id);
 
-		/* Max: prepare HQ to a temp cache (not the library), then play local. */
+		/* Max: stream adaptive H.264 ≤720p + AAC (ViTube-style dual Range). */
 		if (quality == 0 && has_hq) {
-			char prepared[512];
-			if (yt_prepare_hq_mp4(&media, base, YT_PLAY_CACHE_DIR, prepared,
-			                      sizeof(prepared)) != 0)
-				return 0;
-			snprintf(selection->local_path, sizeof(selection->local_path), "%s",
-			         prepared);
-			selection->delete_local_after_play = 1;
+			snprintf(selection->video_url, sizeof(selection->video_url), "%s",
+			         media.download_video_url);
+			snprintf(selection->audio_url, sizeof(selection->audio_url), "%s",
+			         media.audio_url);
+			selection->quality_height =
+			    media.download_height > 0 ? media.download_height : 720;
 			*played = 1;
 			return 1;
 		}
@@ -563,6 +562,8 @@ static int resolve_and_act(const YtSearchResult *item, UiYtSelection *selection,
 		}
 		snprintf(selection->video_url, sizeof(selection->video_url), "%s",
 		         media.video_url);
+		selection->quality_height =
+		    media.progressive_height > 0 ? media.progressive_height : 360;
 		*played = 1;
 		return 1;
 	}

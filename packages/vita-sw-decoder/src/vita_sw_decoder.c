@@ -384,6 +384,24 @@ static void clear_track_snapshot(VitaSwDecoderPlayer *player) {
 	player->subtitle_track_count = 0;
 }
 
+
+static const VitaSwDecoderStreamFactory *
+player_audio_factory(const VitaSwDecoderPlayer *player)
+{
+	if (!player) return NULL;
+	if (player->config.audio_stream.open ||
+	    player->config.audio_stream.open_with_cancel)
+		return &player->config.audio_stream;
+	return &player->config.stream;
+}
+
+static int player_has_separate_audio(const VitaSwDecoderPlayer *player)
+{
+	return player &&
+	       (player->config.audio_stream.open ||
+	        player->config.audio_stream.open_with_cancel);
+}
+
 static void snapshot_tracks(VitaSwDecoderPlayer *player,
 	                        const AVFormatContext *format) {
 	clear_track_snapshot(player);
@@ -639,7 +657,7 @@ static int ensure_audio_input_reusable(VitaSwDecoderPlayer *player,
 	 * independent audio cursor before any FFmpeg seek/read reuses it. */
 	input_close(&player->audio_input);
 	if (audio_operation_cancelled(player, operation_cancel)) return AVERROR_EXIT;
-	return input_open(&player->audio_input, &player->config.stream,
+	return input_open(&player->audio_input, player_audio_factory(player),
 	                  player->cancel, "audio-reopen", 0);
 }
 
@@ -1298,14 +1316,39 @@ static int open_session(VitaSwDecoderPlayer *player, uint64_t start_position_ms)
 	ret = input_open(&player->video_input, &player->config.stream,
 	                 player->cancel, "video", 1);
 	if (ret < 0) goto fail;
-	snapshot_tracks(player, player->video_input.format);
+	if (player_has_separate_audio(player)) {
+		ret = input_open(&player->audio_input, player_audio_factory(player),
+		                 player->cancel, "audio", 0);
+		if (ret < 0) goto fail;
+		clear_track_snapshot(player);
+		snapshot_tracks(player, player->audio_input.format);
+		{
+			const AVFormatContext *format = player->video_input.format;
+			unsigned int i;
+			for (i = 0; format && i < format->nb_streams; i++) {
+				const AVStream *stream = format->streams[i];
+				const AVCodecParameters *params = stream->codecpar;
+				if (params->codec_type == AVMEDIA_TYPE_SUBTITLE &&
+				    text_subtitle_codec(params->codec_id) &&
+				    player->subtitle_track_count <
+				        VITA_SW_DECODER_MAX_SUBTITLE_TRACKS) {
+					fill_track_info(
+					    &player->subtitle_tracks[player->subtitle_track_count++],
+					    stream, (int)i);
+				}
+			}
+		}
+	} else {
+		snapshot_tracks(player, player->video_input.format);
+	}
 	int requested_audio_track = player->config.audio_track;
 	if (player->audio_track_count <= 0 || player->config.audio_track < 0 ||
 	    player->config.audio_track >= player->audio_track_count)
 		player->config.audio_track = 0;
-	log_printf("decoder tracks: audio=%d subtitles=%d requested=%d selected=%d\n",
+	log_printf("decoder tracks: audio=%d subtitles=%d requested=%d selected=%d separate-audio=%d\n",
 	           player->audio_track_count, player->subtitle_track_count,
-	           requested_audio_track, player->config.audio_track);
+	           requested_audio_track, player->config.audio_track,
+	           player_has_separate_audio(player));
 	int video_index = find_stream(player->video_input.format,
 	                              AVMEDIA_TYPE_VIDEO, AV_CODEC_ID_H264, 0);
 	int audio_index = player->audio_track_count > 0
@@ -1322,9 +1365,11 @@ static int open_session(VitaSwDecoderPlayer *player, uint64_t start_position_ms)
 	else if (player->video_input.format->bit_rate > 0)
 		player->video_bitrate_bps = (uint64_t)player->video_input.format->bit_rate;
 	if (audio_index >= 0) {
-		ret = input_open(&player->audio_input, &player->config.stream,
-		                 player->cancel, "audio", 0);
-		if (ret < 0) goto fail;
+		if (!player_has_separate_audio(player)) {
+			ret = input_open(&player->audio_input, &player->config.stream,
+			                 player->cancel, "audio", 0);
+			if (ret < 0) goto fail;
+		}
 		if ((unsigned int)audio_index >= player->audio_input.format->nb_streams ||
 		    !playable_aac_stream(
 		        player->audio_input.format->streams[audio_index])) {

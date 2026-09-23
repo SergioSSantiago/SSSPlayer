@@ -77,6 +77,8 @@ typedef struct VtDecoderPlayer VtDecoderPlayer;
 
 typedef struct VtDecoderPlayerConfig {
 	VtDecoderStreamFactory stream;
+	/* Optional separate AAC/audio factory for adaptive dual-URL playback. */
+	VtDecoderStreamFactory audio_stream;
 	VtDecoderExternalSubtitle external_subtitles[
 		VT_DECODER_MAX_SUBTITLE_TRACKS];
 	int external_subtitle_count;

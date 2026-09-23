@@ -39,6 +39,8 @@ typedef struct LocalFileCursor {
 struct VtDecoderPlayer {
 	VtDecoderBackend backend;
 	VtDecoderStreamFactory source;
+	VtDecoderStreamFactory audio_source;
+	int has_audio_source;
 	VtDecoderPlayerConfig config;
 	VitaHwDecoderPlayer *hardware;
 	VitaSwDecoderPlayer *software;
@@ -398,6 +400,12 @@ int vt_decoder_open(VtDecoderPlayer *player, const VtDecoderPlayerConfig *config
 	    (!config->stream.open && !config->stream.open_cancelable)) return -1;
 	player->source = config->stream;
 	player->config = *config;
+	player->has_audio_source = 0;
+	memset(&player->audio_source, 0, sizeof(player->audio_source));
+	if (config->audio_stream.open || config->audio_stream.open_cancelable) {
+		player->audio_source = config->audio_stream;
+		player->has_audio_source = 1;
+	}
 	memset(player->audio_tracks, 0, sizeof(player->audio_tracks));
 	memset(player->subtitle_tracks, 0, sizeof(player->subtitle_tracks));
 	memset(player->subtitle_sources, 0, sizeof(player->subtitle_sources));
@@ -426,6 +434,12 @@ int vt_decoder_open(VtDecoderPlayer *player, const VtDecoderPlayerConfig *config
 			.volume_percent = config->volume_percent,
 			.cancel_flag = config->cancel_flag
 		};
+		if (player->has_audio_source) {
+			hardware.audio_stream.opaque = &player->audio_source;
+			hardware.audio_stream.open = hw_stream_open;
+			hardware.audio_stream.open_with_cancel =
+			    hw_stream_open_with_cancel;
+		}
 		VitaHwDecoderPlayer *hardware_candidate = vita_hw_decoder_create();
 		publish_hardware_candidate(player, hardware_candidate);
 		stage_started = sceKernelGetProcessTimeWide();
@@ -473,6 +487,11 @@ int vt_decoder_open(VtDecoderPlayer *player, const VtDecoderPlayerConfig *config
 		.volume_percent = config->volume_percent,
 		.cancel_flag = config->cancel_flag
 	};
+	if (player->has_audio_source) {
+		software.audio_stream.opaque = &player->audio_source;
+		software.audio_stream.open = sw_stream_open;
+		software.audio_stream.open_with_cancel = sw_stream_open_with_cancel;
+	}
 	VitaSwDecoderPlayer *software_candidate = vita_sw_decoder_create();
 	publish_software_candidate(player, software_candidate);
 	stage_started = sceKernelGetProcessTimeWide();
@@ -517,6 +536,11 @@ int vt_decoder_fallback_to_software(VtDecoderPlayer *player,
 		.volume_percent = player->config.volume_percent,
 		.cancel_flag = player->config.cancel_flag
 	};
+	if (player->has_audio_source) {
+		software.audio_stream.opaque = &player->audio_source;
+		software.audio_stream.open = sw_stream_open;
+		software.audio_stream.open_with_cancel = sw_stream_open_with_cancel;
+	}
 	VitaSwDecoderPlayer *software_candidate = vita_sw_decoder_create();
 	publish_software_candidate(player, software_candidate);
 	uint64_t stage_started = sceKernelGetProcessTimeWide();

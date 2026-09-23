@@ -7,6 +7,8 @@
 
 typedef struct {
 	VtDecoderStreamFactory stream;
+	/* Optional separate AAC factory for YouTube adaptive Max play. */
+	VtDecoderStreamFactory audio_stream;
 	VtDecoderExternalSubtitle external_subtitles[
 		VT_DECODER_MAX_SUBTITLE_TRACKS];
 	int external_subtitle_count;

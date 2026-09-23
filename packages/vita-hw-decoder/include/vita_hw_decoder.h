@@ -53,6 +53,10 @@ typedef struct VitaHwDecoderTrackInfo {
 
 typedef struct VitaHwDecoderPlayerConfig {
 	VitaHwDecoderStreamFactory stream;
+	/* Optional separate audio factory for demuxed adaptive sources (YouTube
+	 * video-only + AAC-only). When open/open_with_cancel are unset, audio
+	 * reuses stream (muxed file). */
+	VitaHwDecoderStreamFactory audio_stream;
 	/* Zero-based AAC track ordinal. Zero preserves the historical behavior of
 	 * selecting the first playable audio stream. */
 	int audio_track;

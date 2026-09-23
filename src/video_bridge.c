@@ -280,16 +280,25 @@ int sss_video_browse_network(void)
 static int run_http_url_video(const UiYtSelection *selection)
 {
 	HttpUrlStreamFactory remote;
+	HttpUrlStreamFactory audio_remote;
 	VtHwPlayerScreenSource source;
 	char id[16];
 	uint64_t last_position;
 	uint64_t last_duration = 0;
 	int last_audio = 0, last_subtitle = 0;
 	int ret;
+	int dual = 0;
 
 	if (!selection || !selection->video_url[0]) return -1;
+	memset(&audio_remote, 0, sizeof(audio_remote));
 	if (http_url_stream_factory_init(&remote, selection->video_url) < 0)
 		return -1;
+	dual = selection->audio_url[0] != '\0';
+	if (dual &&
+	    http_url_stream_factory_init(&audio_remote, selection->audio_url) < 0) {
+		http_url_stream_factory_free(&remote);
+		return -1;
+	}
 
 	yield_music_audio();
 	vt_video_thumbnail_prepare_playback();
@@ -303,16 +312,20 @@ static int run_http_url_video(const UiYtSelection *selection)
 
 	memset(&source, 0, sizeof(source));
 	source.stream = remote.factory;
+	if (dual) source.audio_stream = audio_remote.factory;
 	source.title = selection->title;
 	source.location = selection->author[0] ? selection->author : "YouTube";
 	source.history_id = id;
 	source.authenticated_remote = 0;
 	source.allow_minimize = 0;
+	source.expected_height =
+	    selection->quality_height > 0 ? (uint32_t)selection->quality_height : 0;
 	last_position = vt_playback_history_position(id, 0);
 	source.start_position_ms = last_position;
 	ret = vt_hw_player_screen_run(&source, &last_position, &last_duration,
 	                              &last_audio, &last_subtitle);
 	http_url_stream_factory_free(&remote);
+	if (dual) http_url_stream_factory_free(&audio_remote);
 	log_save(VITAMEDIADECK_SESSION_LOG_PATH);
 	vt_playback_history_update(id, last_position, last_duration);
 	restore_music_audio();

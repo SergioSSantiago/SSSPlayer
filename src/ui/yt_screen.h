@@ -12,11 +12,13 @@ extern "C" {
 
 typedef struct {
 	char video_url[YT_URL_MAX];
+	char audio_url[YT_URL_MAX];
 	/* When set, play this local MP4 instead of streaming video_url. */
 	char local_path[512];
 	char title[YT_TITLE_MAX];
 	char author[YT_AUTHOR_MAX];
 	char video_id[YT_ID_MAX];
+	int quality_height; /* expected height for HUD (0 = unknown) */
 	int delete_local_after_play; /* 1 = remove local_path after playback */
 } UiYtSelection;
 

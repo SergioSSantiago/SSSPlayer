@@ -111,6 +111,15 @@ int vita_https_open_range_stream(VitaHttpsClient *client, const char *url,
 	                             volatile int *cancel_flag,
 	                             VitaHttpsStream *out);
 
+/* Like vita_https_open_range_stream, but skips HEAD when known_size > 0
+ * (YouTube adaptive googlevideo rejects HEAD / plain GET). Optional
+ * extra_headers (NULL-terminated) are sent on every Range request. */
+int vita_https_open_range_stream_ex(VitaHttpsClient *client, const char *url,
+	                                volatile int *cancel_flag,
+	                                int64_t known_size,
+	                                const char *const *extra_headers,
+	                                VitaHttpsStream *out);
+
 const char *vita_https_error_string(int error);
 
 #ifdef __cplusplus

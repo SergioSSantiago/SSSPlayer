@@ -940,6 +940,7 @@ int vt_hw_player_screen_run(const VtHwPlayerScreenSource *source,
 	memset(&open, 0, sizeof(open));
 	open.player = player;
 	open.config.stream = source->stream;
+	open.config.audio_stream = source->audio_stream;
 	open.config.external_subtitle_count = source->external_subtitle_count;
 	open.config.external_subtitles_replace_embedded =
 	    source->external_subtitles_replace_embedded;

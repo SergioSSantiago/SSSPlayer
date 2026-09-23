@@ -53,6 +53,8 @@ typedef struct VitaSwDecoderTrackInfo {
 
 typedef struct VitaSwDecoderPlayerConfig {
 	VitaSwDecoderStreamFactory stream;
+	/* Optional separate audio factory for demuxed adaptive sources. */
+	VitaSwDecoderStreamFactory audio_stream;
 	/* Zero-based AAC track ordinal. Zero preserves the historical behavior of
 	 * selecting the first playable audio stream. */
 	int audio_track;

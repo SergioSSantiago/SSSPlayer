@@ -39,6 +39,7 @@ typedef struct RangeStream {
 	uint64_t cache_start;
 	size_t cache_size;
 	unsigned char *cache;
+	struct curl_slist *headers;
 } RangeStream;
 
 typedef struct WriteBridge {
@@ -388,6 +389,8 @@ static int range_fetch(RangeStream *stream, uint64_t start) {
 	apply_common(curl, stream->client, &progress);
 	curl_easy_setopt(curl, CURLOPT_URL, stream->url);
 	curl_easy_setopt(curl, CURLOPT_RANGE, range);
+	if (stream->headers)
+		curl_easy_setopt(curl, CURLOPT_HTTPHEADER, stream->headers);
 	FixedBuffer buffer = { stream->cache, 0, RANGE_CACHE_SIZE };
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, fixed_write);
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buffer);
@@ -441,25 +444,39 @@ static int64_t range_seek(void *opaque, int64_t offset, int origin) {
 static void range_close(void *opaque) {
 	RangeStream *stream = (RangeStream *)opaque;
 	if (!stream) return;
+	curl_slist_free_all(stream->headers);
 	free(stream->cache);
 	free(stream->url);
 	free(stream);
 }
 
-int vita_https_open_range_stream(VitaHttpsClient *client, const char *url,
-	                             volatile int *cancel_flag,
-	                             VitaHttpsStream *out) {
+int vita_https_open_range_stream_ex(VitaHttpsClient *client, const char *url,
+	                                volatile int *cancel_flag,
+	                                int64_t known_size,
+	                                const char *const *extra_headers,
+	                                VitaHttpsStream *out) {
+	int64_t size = known_size;
+	int result = 0;
+	RangeStream *stream;
+	CURL *curl;
+
 	if (!client || !out || !valid_request_url(url, client->allow_http))
 		return VITA_HTTPS_ERROR_INVALID_ARGUMENT;
 	memset(out, 0, sizeof(*out));
-	VitaHttpsResponse head = {0};
-	VitaHttpsRequest request = {
-		.method = "HEAD", .url = url, .cancel_flag = cancel_flag
-	};
-	int result = vita_https_perform(client, &request, &head);
-	if (result < 0) return result;
-	if (head.content_length <= 0) return VITA_HTTPS_ERROR_RANGE_UNSUPPORTED;
-	RangeStream *stream = calloc(1, sizeof(*stream));
+
+	if (size <= 0) {
+		VitaHttpsResponse head = {0};
+		VitaHttpsRequest request = {
+			.method = "HEAD", .url = url, .cancel_flag = cancel_flag,
+			.headers = extra_headers
+		};
+		result = vita_https_perform(client, &request, &head);
+		if (result < 0) return result;
+		if (head.content_length <= 0) return VITA_HTTPS_ERROR_RANGE_UNSUPPORTED;
+		size = head.content_length;
+	}
+
+	stream = calloc(1, sizeof(*stream));
 	if (!stream) return VITA_HTTPS_ERROR_OUT_OF_MEMORY;
 	stream->url = strdup(url);
 	stream->cache = malloc(RANGE_CACHE_SIZE);
@@ -469,14 +486,26 @@ int vita_https_open_range_stream(VitaHttpsClient *client, const char *url,
 	}
 	stream->client = client;
 	stream->cancel = cancel_flag;
-	stream->size = (uint64_t)head.content_length;
-	CURL *curl = curl_easy_init();
+	stream->size = (uint64_t)size;
+	if (extra_headers) {
+		for (const char *const *header = extra_headers; *header; header++) {
+			stream->headers = curl_slist_append(stream->headers, *header);
+			if (!stream->headers) {
+				range_close(stream);
+				return VITA_HTTPS_ERROR_OUT_OF_MEMORY;
+			}
+		}
+	}
+
+	curl = curl_easy_init();
 	if (!curl) result = VITA_HTTPS_ERROR_OUT_OF_MEMORY;
 	else {
 		ProgressBridge progress = { cancel_flag, NULL };
 		apply_common(curl, client, &progress);
 		curl_easy_setopt(curl, CURLOPT_URL, url);
 		curl_easy_setopt(curl, CURLOPT_RANGE, "0-0");
+		if (stream->headers)
+			curl_easy_setopt(curl, CURLOPT_HTTPHEADER, stream->headers);
 		FixedBuffer probe = { stream->cache, 0, 1 };
 		curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, fixed_write);
 		curl_easy_setopt(curl, CURLOPT_WRITEDATA, &probe);
@@ -499,6 +528,13 @@ int vita_https_open_range_stream(VitaHttpsClient *client, const char *url,
 	out->close = range_close;
 	out->size = (int64_t)stream->size;
 	return 0;
+}
+
+int vita_https_open_range_stream(VitaHttpsClient *client, const char *url,
+	                             volatile int *cancel_flag,
+	                             VitaHttpsStream *out) {
+	return vita_https_open_range_stream_ex(client, url, cancel_flag, 0, NULL,
+	                                       out);
 }
 
 const char *vita_https_error_string(int error) {

@@ -11,6 +11,30 @@ typedef struct {
 	volatile int *cancel;
 } HttpUrlStream;
 
+static int youtube_adaptive_url(const char *url)
+{
+	if (!url || !strstr(url, "googlevideo.com")) return 0;
+	return strstr(url, "gir=yes") != NULL || strstr(url, "gir%3Dyes") != NULL;
+}
+
+static int64_t youtube_url_clen(const char *url)
+{
+	const char *p;
+	char *end = NULL;
+	long long value;
+	if (!url) return 0;
+	p = strstr(url, "clen=");
+	if (!p) p = strstr(url, "clen%3D");
+	if (!p) return 0;
+	p = strchr(p, '=');
+	if (!p) return 0;
+	p++;
+	if (p[0] == '%' && p[1] == '3' && (p[2] == 'D' || p[2] == 'd')) p += 3;
+	value = strtoll(p, &end, 10);
+	if (value <= 0 || (end && end == p)) return 0;
+	return (int64_t)value;
+}
+
 static int http_url_read(void *opaque, void *buffer, size_t size)
 {
 	HttpUrlStream *stream = opaque;
@@ -50,6 +74,10 @@ static int http_url_open_cancelable(void *opaque, VtDecoderStreamHandle *out,
 	HttpUrlStream *stream;
 	VitaHttpsClientConfig config;
 	int result;
+	int64_t known_size = 0;
+	const char *headers[3];
+	int header_n = 0;
+	const char *const *header_ptr = NULL;
 
 	if (!factory || !factory->url || !out) return -1;
 	stream = calloc(1, sizeof(*stream));
@@ -69,8 +97,20 @@ static int http_url_open_cancelable(void *opaque, VtDecoderStreamHandle *out,
 		return -1;
 	}
 	stream->cancel = cancel_flag;
-	result = vita_https_open_range_stream(stream->client, factory->url,
-	                                      cancel_flag, &stream->stream);
+
+	if (youtube_adaptive_url(factory->url)) {
+		known_size = youtube_url_clen(factory->url);
+		headers[header_n++] = "Referer: https://www.youtube.com/";
+		headers[header_n++] = "Origin: https://www.youtube.com";
+		headers[header_n] = NULL;
+		header_ptr = headers;
+		result = vita_https_open_range_stream_ex(
+		    stream->client, factory->url, cancel_flag, known_size, header_ptr,
+		    &stream->stream);
+	} else {
+		result = vita_https_open_range_stream(stream->client, factory->url,
+		                                     cancel_flag, &stream->stream);
+	}
 	if (result < 0) {
 		http_url_close(stream);
 		return result;
