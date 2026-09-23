@@ -3,6 +3,7 @@
 #include <ctype.h>
 #include <limits.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include <psp2/io/fcntl.h>
@@ -131,11 +132,181 @@ typedef struct { VtDownloadJob *job; SceUID fd; int64_t transferred; } UrlWrite;
 
 static size_t url_write(const void *data, size_t size, void *opaque) {
 	UrlWrite *writer = opaque;
-	if (!writer || !writer->job || wait_if_paused(writer->job) < 0 ||
-	    write_chunk(writer->fd, data, size) < 0) return 0;
+	if (!writer || !writer->job) return 0;
+	if (writer->job->cancel) return 0;
+	if (wait_if_paused(writer->job) < 0) return 0;
+	if (write_chunk(writer->fd, data, size) < 0) return 0;
 	writer->transferred += (int64_t)size;
 	update_progress(writer->job, writer->transferred);
 	return size;
+}
+
+/* YouTube adaptive googlevideo URLs reject a plain GET (HTTP 403) but accept
+ * Range windows. Progressive muxed URLs (itag 18) still allow a full GET. */
+static int youtube_url_needs_range(const char *url) {
+	if (!url || !url[0]) return 0;
+	if (!strstr(url, "googlevideo.com")) return 0;
+	return strstr(url, "gir=yes") != NULL || strstr(url, "gir%3Dyes") != NULL;
+}
+
+static int64_t youtube_url_clen(const char *url) {
+	const char *p;
+	char *end = NULL;
+	long long value;
+	if (!url) return 0;
+	p = strstr(url, "clen=");
+	if (!p) p = strstr(url, "clen%3D");
+	if (!p) return 0;
+	p = strchr(p, '=');
+	if (!p) return 0;
+	p++;
+	if (p[0] == '%' && p[1] == '3' && (p[2] == 'D' || p[2] == 'd')) p += 3;
+	value = strtoll(p, &end, 10);
+	if (value <= 0 || (end && end == p)) return 0;
+	return (int64_t)value;
+}
+
+#define YT_RANGE_CHUNK (256 * 1024)
+
+static int download_url_ranged(VtDownloadJob *job, const char *part,
+                               const VitaHttpsClientConfig *config,
+                               const char *const *base_headers) {
+	int64_t total = youtube_url_clen(job->url);
+	int64_t offset = 0;
+	SceUID fd;
+	VitaHttpsClient *client;
+	char range_header[64];
+	const char *headers[6];
+	int header_n = 0;
+	int i;
+
+	if (total <= 0) {
+		snprintf(job->detail, sizeof(job->detail),
+		         "Adaptive stream missing size (clen)");
+		return -1;
+	}
+
+	job->progress_total = total > LONG_MAX ? LONG_MAX : (long)total;
+	update_progress(job, 0);
+
+	fd = sceIoOpen(part, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
+	if (fd < 0) {
+		snprintf(job->detail, sizeof(job->detail), "Could not create file");
+		return -1;
+	}
+
+	client = vita_https_client_create(config);
+	if (!client) {
+		sceIoClose(fd);
+		sceIoRemove(part);
+		snprintf(job->detail, sizeof(job->detail), "HTTPS unavailable");
+		return -1;
+	}
+
+	for (i = 0; base_headers && base_headers[i]; i++)
+		headers[header_n++] = base_headers[i];
+
+	while (offset < total) {
+		int64_t end = offset + YT_RANGE_CHUNK - 1;
+		UrlWrite writer;
+		VitaHttpsRequest request;
+		VitaHttpsResponse response;
+		int result;
+		int attempt;
+		int chunk_ok = 0;
+
+		if (end >= total) end = total - 1;
+		if (job->cancel) {
+			vita_https_client_destroy(client);
+			sceIoClose(fd);
+			sceIoRemove(part);
+			snprintf(job->detail, sizeof(job->detail), "Download cancelled");
+			return -1;
+		}
+		if (wait_if_paused(job) < 0) {
+			vita_https_client_destroy(client);
+			sceIoClose(fd);
+			sceIoRemove(part);
+			snprintf(job->detail, sizeof(job->detail), "Download cancelled");
+			return -1;
+		}
+
+		snprintf(range_header, sizeof(range_header),
+		         "Range: bytes=%lld-%lld", (long long)offset, (long long)end);
+		headers[header_n] = range_header;
+		headers[header_n + 1] = NULL;
+
+		for (attempt = 0; attempt < 4 && !chunk_ok; attempt++) {
+			if (attempt > 0) {
+				snprintf(job->detail, sizeof(job->detail),
+				         "Retrying range (%d/4)…", attempt + 1);
+				sceKernelDelayThread((500 << (attempt - 1)) * 1000);
+			}
+			writer.job = job;
+			writer.fd = fd;
+			writer.transferred = offset;
+			memset(&request, 0, sizeof(request));
+			request.method = "GET";
+			request.url = job->url;
+			request.headers = headers;
+			request.write = url_write;
+			request.write_opaque = &writer;
+			request.cancel_flag = &job->cancel;
+			memset(&response, 0, sizeof(response));
+			result = vita_https_perform(client, &request, &response);
+			if (job->cancel) {
+				vita_https_client_destroy(client);
+				sceIoClose(fd);
+				sceIoRemove(part);
+				snprintf(job->detail, sizeof(job->detail), "Download cancelled");
+				return -1;
+			}
+			if (result == 0 &&
+			    (response.status_code == 206 || response.status_code == 200) &&
+			    writer.transferred > offset) {
+				offset = writer.transferred;
+				update_progress(job, offset);
+				chunk_ok = 1;
+				job->detail[0] = '\0';
+				break;
+			}
+			if (!job->detail[0])
+				snprintf(job->detail, sizeof(job->detail),
+				         result < 0 ? vita_https_error_string(result)
+				                    : "HTTP %ld on ranged download",
+				         response.status_code);
+			/* Rewind file to last good offset for the next attempt. */
+			if (sceIoLseek(fd, offset, SCE_SEEK_SET) < 0) {
+				vita_https_client_destroy(client);
+				sceIoClose(fd);
+				sceIoRemove(part);
+				snprintf(job->detail, sizeof(job->detail),
+				         "Could not resume ranged download");
+				return -1;
+			}
+			update_progress(job, offset);
+		}
+		if (!chunk_ok) {
+			vita_https_client_destroy(client);
+			sceIoClose(fd);
+			sceIoRemove(part);
+			if (!job->detail[0])
+				snprintf(job->detail, sizeof(job->detail),
+				         "Ranged download failed");
+			return -1;
+		}
+	}
+
+	vita_https_client_destroy(client);
+	if (offset < total) {
+		sceIoClose(fd);
+		sceIoRemove(part);
+		snprintf(job->detail, sizeof(job->detail),
+		         "Incomplete download (%lld / %lld bytes)",
+		         (long long)offset, (long long)total);
+		return -1;
+	}
+	return finish_file(job, fd, part, 0);
 }
 
 static int download_url(VtDownloadJob *job, const char *part) {
@@ -178,6 +349,9 @@ static int download_url(VtDownloadJob *job, const char *part) {
 	if (is_youtube)
 		headers[header_n++] = "Referer: https://www.youtube.com/";
 	headers[header_n] = NULL;
+
+	if (youtube_url_needs_range(job->url))
+		return download_url_ranged(job, part, &config, headers);
 
 	for (attempt = 0; attempt < max_attempts; attempt++) {
 		VitaHttpsClient *client;
