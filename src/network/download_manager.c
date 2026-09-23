@@ -147,7 +147,7 @@ static int download_url(VtDownloadJob *job, const char *part) {
 	const int max_attempts = 3;
 
 	const char *yt_android_ua =
-	    "com.google.android.youtube/21.26.364 (Linux; U; Android 11) gzip";
+	    "com.google.android.youtube/20.10.38 (Linux; U; Android 11) gzip";
 	const char *yt_vr_ua =
 	    "com.google.android.apps.youtube.vr.oculus/1.60.19 "
 	    "(Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip";

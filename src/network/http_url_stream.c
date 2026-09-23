@@ -57,7 +57,7 @@ static int http_url_open_cancelable(void *opaque, VtDecoderStreamHandle *out,
 
 	memset(&config, 0, sizeof(config));
 	config.user_agent =
-	    "com.google.android.youtube/21.26.364 (Linux; U; Android 11) gzip";
+	    "com.google.android.youtube/20.10.38 (Linux; U; Android 11) gzip";
 	config.connect_timeout_ms = 15000;
 	config.request_timeout_ms = 0;
 	config.low_speed_bytes_per_second = 256;

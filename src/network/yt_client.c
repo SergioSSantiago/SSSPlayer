@@ -1,8 +1,10 @@
 /*
  * YouTube client via InnerTube (ViTube / yt-dlp Android-style clients).
  * Search: ANDROID + continuation pages.
- * Resolve: ANDROID for progressive play, ANDROID_VR for adaptive audio when
- * the bot-gate allows it. GPL-3.0 — approach inspired by vitube-vpk.
+ * Resolve: ANDROID for progressive + adaptive (≤720p H.264). Prefer an older
+ * ANDROID build that still returns plain CDN URLs; newer builds (21.x+) often
+ * omit adaptive URLs (SABR). ANDROID_VR remains a fallback when the bot-gate
+ * allows it. GPL-3.0 — approach inspired by vitube-vpk.
  */
 #include "network/yt_client.h"
 
@@ -22,7 +24,9 @@
 
 #define IT_BASE "https://youtubei.googleapis.com/youtubei/v1/"
 
-#define IT_ANDROID_VERSION "21.26.364"
+/* 21.x often lists adaptiveFormats without playable URLs. 20.10.x still
+ * returns googlevideo CDN links for H.264 ≤720p + AAC. */
+#define IT_ANDROID_VERSION "20.10.38"
 #define IT_ANDROID_UA \
 	"com.google.android.youtube/" IT_ANDROID_VERSION \
 	" (Linux; U; Android 11) gzip"
@@ -660,7 +664,7 @@ int yt_client_resolve(const char *video_id, YtResolvedMedia *out,
 
 	memset(out, 0, sizeof(*out));
 
-	/* ANDROID first: progressive muxed MP4 (itag 18) works without VR. */
+	/* ANDROID first: progressive itag 18 + adaptive ≤720p when CDN URLs exist. */
 	body = json_pack("{s:s,s:b,s:b}",
 	                 "videoId", video_id,
 	                 "contentCheckOk", 1,
@@ -678,7 +682,7 @@ int yt_client_resolve(const char *video_id, YtResolvedMedia *out,
 		buffer_free(&buffer);
 	}
 
-	/* ANDROID_VR fills adaptive audio + ≤720p H.264 video for HQ downloads. */
+	/* ANDROID_VR fallback when ANDROID omitted adaptive audio/video URLs. */
 	if (!out->audio_url[0] || !out->download_video_url[0]) {
 		body = json_pack("{s:s,s:b,s:b}",
 		                 "videoId", video_id,

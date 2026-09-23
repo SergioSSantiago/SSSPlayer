@@ -108,6 +108,8 @@ static int yt_remux_av_worker(void *opaque)
 	                              job->detail_size);
 }
 
+#define YT_ANDROID_UA \
+	"com.google.android.youtube/20.10.38 (Linux; U; Android 11) gzip"
 #define YT_VR_UA \
 	"com.google.android.apps.youtube.vr.oculus/1.60.19 " \
 	"(Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip"
@@ -375,7 +377,7 @@ static int yt_prepare_hq_mp4(const YtResolvedMedia *media, const char *base,
 	vt_download_job_init_url(&vjob, media->download_video_url);
 	vt_download_job_set_destination(&vjob, folder);
 	vt_download_job_set_filename(&vjob, v_name);
-	vt_download_job_set_user_agent(&vjob, YT_VR_UA);
+	vt_download_job_set_user_agent(&vjob, YT_ANDROID_UA);
 	if (ui_loading_run_download(
 	        media->download_height > 0 ? "Preparing video (HQ)…"
 	                                   : "Preparing video…",
@@ -391,7 +393,7 @@ static int yt_prepare_hq_mp4(const YtResolvedMedia *media, const char *base,
 	vt_download_job_init_url(&ajob, media->audio_url);
 	vt_download_job_set_destination(&ajob, folder);
 	vt_download_job_set_filename(&ajob, a_name);
-	vt_download_job_set_user_agent(&ajob, YT_VR_UA);
+	vt_download_job_set_user_agent(&ajob, YT_ANDROID_UA);
 	if (ui_loading_run_download(
 	        "Preparing audio…", vt_download_run, &ajob, &ajob.paused,
 	        &ajob.cancel, &ajob.progress_current, &ajob.progress_total) != 0) {
@@ -628,7 +630,7 @@ static int resolve_and_act(const YtSearchResult *item, UiYtSelection *selection,
 				vt_download_job_init_url(&job, media.audio_url);
 				vt_download_job_set_destination(&job, destination);
 				vt_download_job_set_filename(&job, filename);
-				vt_download_job_set_user_agent(&job, YT_VR_UA);
+				vt_download_job_set_user_agent(&job, YT_ANDROID_UA);
 				if (ui_loading_run_download(
 				        vt_i18n_str(VT_STR_NETWORK_DOWNLOADING),
 				        vt_download_run, &job, &job.paused, &job.cancel,
