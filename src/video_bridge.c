@@ -8,6 +8,7 @@
 #include <string.h>
 
 #include <psp2/io/fcntl.h>
+#include <psp2/io/stat.h>
 #include <psp2/kernel/processmgr.h>
 
 #include "app_paths.h"
@@ -36,7 +37,13 @@
 
 #include <vita_https.h>
 
+#include "network/download_manager.h"
 #include "network/http_url_stream.h"
+#include "network/yt_client.h"
+
+#define YT_PLAY_CACHE_DIR VITAMEDIADECK_DATA_DIR "/yt_cache"
+#define YT_ANDROID_UA \
+	"com.google.android.youtube/20.10.38 (Linux; U; Android 11) gzip"
 
 static int g_video_ready;
 static int g_network_ready;
@@ -277,6 +284,88 @@ int sss_video_browse_network(void)
 	}
 }
 
+static int yt_fallback_remux_play(const UiYtSelection *selection)
+{
+	VtDownloadJob vjob, ajob;
+	char folder[256];
+	char base[96];
+	char v_name[128], a_name[128];
+	char final_path[512];
+	char remux_detail[160];
+	char *dot;
+	int ret;
+
+	if (!selection || !selection->video_url[0] || !selection->audio_url[0])
+		return -1;
+
+	sceIoMkdir(VITAMEDIADECK_DATA_DIR, 0777);
+	sceIoMkdir(YT_PLAY_CACHE_DIR, 0777);
+	snprintf(folder, sizeof(folder), "%s", YT_PLAY_CACHE_DIR);
+	yt_client_safe_filename(selection->title[0] ? selection->title : "youtube",
+	                        base, sizeof(base));
+	snprintf(v_name, sizeof(v_name), "%s.v.mp4", base);
+	snprintf(a_name, sizeof(a_name), "%s.a.m4a", base);
+
+	vt_download_job_init_url(&vjob, selection->video_url);
+	vt_download_job_set_destination(&vjob, folder);
+	vt_download_job_set_filename(&vjob, v_name);
+	vt_download_job_set_user_agent(&vjob, YT_ANDROID_UA);
+	if (ui_loading_run_download("Preparing Max video…", vt_download_run, &vjob,
+	                           &vjob.paused, &vjob.cancel, &vjob.progress_current,
+	                           &vjob.progress_total) != 0) {
+		if (!vjob.cancel)
+			ui_message_show(vt_i18n_str(VT_STR_NETWORK_DOWNLOAD_FAILED),
+			                vjob.detail[0] ? vjob.detail : "Transfer failed",
+			                3000);
+		return -1;
+	}
+
+	vt_download_job_init_url(&ajob, selection->audio_url);
+	vt_download_job_set_destination(&ajob, folder);
+	vt_download_job_set_filename(&ajob, a_name);
+	vt_download_job_set_user_agent(&ajob, YT_ANDROID_UA);
+	if (ui_loading_run_download("Preparing Max audio…", vt_download_run, &ajob,
+	                           &ajob.paused, &ajob.cancel, &ajob.progress_current,
+	                           &ajob.progress_total) != 0) {
+		sceIoRemove(vjob.destination);
+		if (!ajob.cancel)
+			ui_message_show(vt_i18n_str(VT_STR_NETWORK_DOWNLOAD_FAILED),
+			                ajob.detail[0] ? ajob.detail : "Transfer failed",
+			                3000);
+		return -1;
+	}
+
+	snprintf(final_path, sizeof(final_path), "%s", vjob.destination);
+	dot = strstr(final_path, ".v.mp4");
+	if (!dot) {
+		sceIoRemove(vjob.destination);
+		sceIoRemove(ajob.destination);
+		return -1;
+	}
+	snprintf(dot, (size_t)(sizeof(final_path) - (size_t)(dot - final_path)),
+	         ".mp4");
+	remux_detail[0] = '\0';
+	if (yt_client_remux_av_mp4(vjob.destination, ajob.destination, final_path,
+	                           remux_detail, sizeof(remux_detail)) != 0) {
+		sceIoRemove(vjob.destination);
+		sceIoRemove(ajob.destination);
+		sceIoRemove(final_path);
+		ui_message_show("Mux failed",
+		                remux_detail[0] ? remux_detail : "Could not create MP4",
+		                3200);
+		return -1;
+	}
+	sceIoRemove(vjob.destination);
+	sceIoRemove(ajob.destination);
+	if (!yt_client_file_has_h264(final_path)) {
+		sceIoRemove(final_path);
+		return -1;
+	}
+	ret = sss_video_play_local(final_path, selection->title);
+	sceIoRemove(final_path);
+	return ret;
+}
+
 static int run_http_url_video(const UiYtSelection *selection)
 {
 	HttpUrlStreamFactory remote;
@@ -330,6 +419,10 @@ static int run_http_url_video(const UiYtSelection *selection)
 	vt_playback_history_update(id, last_position, last_duration);
 	restore_music_audio();
 	ui_touch_reset();
+
+	/* Dual adaptive open can fail on some encodes; remux-to-temp still works. */
+	if (ret < 0 && dual)
+		ret = yt_fallback_remux_play(selection);
 	return ret;
 }
 

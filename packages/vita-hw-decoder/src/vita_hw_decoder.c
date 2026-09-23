@@ -423,8 +423,10 @@ static void snapshot_tracks(VitaHwDecoderPlayer *player,
 }
 
 static int playback_streams_ready(const AVFormatContext *format,
-	                              int require_track_metadata) {
+	                              int require_track_metadata,
+	                              int expect_video) {
 	int have_video = 0;
+	int have_audio = 0;
 	for (unsigned int i = 0; format && i < format->nb_streams; i++) {
 		const AVStream *stream = format->streams[i];
 		const AVCodecParameters *params = stream->codecpar;
@@ -439,11 +441,12 @@ static int playback_streams_ready(const AVFormatContext *format,
 				return 0;
 			have_video = 1;
 		} else if (params->codec_type == AVMEDIA_TYPE_AUDIO &&
-		           params->codec_id == AV_CODEC_ID_AAC &&
-		           (params->sample_rate <= 0 ||
-		            params->ch_layout.nb_channels <= 0 ||
-		            stream->time_base.num <= 0 || stream->time_base.den <= 0)) {
-			return 0;
+		           params->codec_id == AV_CODEC_ID_AAC) {
+			if (params->sample_rate <= 0 ||
+			    params->ch_layout.nb_channels <= 0 ||
+			    stream->time_base.num <= 0 || stream->time_base.den <= 0)
+				return 0;
+			have_audio = 1;
 		} else if (require_track_metadata &&
 		           params->codec_type == AVMEDIA_TYPE_SUBTITLE &&
 		           text_subtitle_codec(params->codec_id) &&
@@ -451,7 +454,8 @@ static int playback_streams_ready(const AVFormatContext *format,
 			return 0;
 		}
 	}
-	return have_video;
+	/* Adaptive dual-URL playback opens an AAC-only demux for audio. */
+	return expect_video ? have_video : have_audio;
 }
 
 static int indexed_container(const AVFormatContext *format) {
@@ -504,7 +508,7 @@ static void input_close(VitaHwDecoderInput *input) {
 static int input_open(VitaHwDecoderInput *input,
 	                  const VitaHwDecoderStreamFactory *factory,
 	                  volatile int *cancel, const char *label,
-	                  int require_track_metadata) {
+	                  int require_track_metadata, int expect_video) {
 	if (!input || !factory || (!factory->open && !factory->open_with_cancel))
 		return AVERROR(EINVAL);
 	uint64_t started_us = sceKernelGetProcessTimeWide();
@@ -591,14 +595,16 @@ static int input_open(VitaHwDecoderInput *input,
 	 * incomplete; container type alone is not evidence that they are ready. */
 	int needs_probe = !(indexed_container(input->format) &&
 	                    playback_streams_ready(input->format,
-	                                           require_track_metadata));
+	                                           require_track_metadata,
+	                                           expect_video));
 	ret = needs_probe ? avformat_find_stream_info(input->format, NULL) : 0;
 	uint64_t probe_done_us = sceKernelGetProcessTimeWide();
 	int deadline_expired = input->deadline_us &&
 	    probe_done_us >= input->deadline_us;
 	if (ret < 0 && deadline_expired && !input->transport_cancel &&
 	    !(cancel && *cancel) &&
-	    playback_streams_ready(input->format, require_track_metadata)) {
+	    playback_streams_ready(input->format, require_track_metadata,
+	                                           expect_video)) {
 		/* The wall bound is a responsiveness guard, not a reason to reject a
 		 * container whose required parameters became usable before FFmpeg's
 		 * optional discovery finished. */
@@ -657,7 +663,7 @@ static int ensure_audio_input_reusable(VitaHwDecoderPlayer *player,
 	input_close(&player->audio_input);
 	if (audio_operation_cancelled(player, operation_cancel)) return AVERROR_EXIT;
 	return input_open(&player->audio_input, player_audio_factory(player),
-	                  player->cancel, "audio-reopen", 0);
+	                  player->cancel, "audio-reopen", 0, 0);
 }
 
 static void stop_audio_candidate(VitaHwDecoderPlayer *player);
@@ -1118,7 +1124,7 @@ static int restart_session_in_place(VitaHwDecoderPlayer *player,
 			input_close(&player->audio_input);
 			ret = player->cancel && *player->cancel ? AVERROR_EXIT
 			      : input_open(&player->audio_input, player_audio_factory(player),
-			                   player->cancel, "audio-zero-reopen", 0);
+			                   player->cancel, "audio-zero-reopen", 0, 0);
 			if (ret >= 0 &&
 			    ((unsigned int)audio_index >= player->audio_input.format->nb_streams ||
 			     !playable_aac_stream(
@@ -1313,12 +1319,12 @@ static int open_session(VitaHwDecoderPlayer *player, uint64_t start_position_ms)
 	memset(&player->audio, 0, sizeof(player->audio));
 
 	ret = input_open(&player->video_input, &player->config.stream,
-	                 player->cancel, "video", 1);
+	                 player->cancel, "video", 1, 1);
 	if (ret < 0) goto fail;
 	if (player_has_separate_audio(player)) {
 		/* Video-only adaptive: take AAC tracks from the audio factory. */
 		ret = input_open(&player->audio_input, player_audio_factory(player),
-		                 player->cancel, "audio", 0);
+		                 player->cancel, "audio", 0, 0);
 		if (ret < 0) goto fail;
 		clear_track_snapshot(player);
 		snapshot_tracks(player, player->audio_input.format);
@@ -1368,7 +1374,7 @@ static int open_session(VitaHwDecoderPlayer *player, uint64_t start_position_ms)
 	if (audio_index >= 0) {
 		if (!player_has_separate_audio(player)) {
 			ret = input_open(&player->audio_input, &player->config.stream,
-			                 player->cancel, "audio", 0);
+			                 player->cancel, "audio", 0, 0);
 			if (ret < 0) goto fail;
 		}
 		if ((unsigned int)audio_index >= player->audio_input.format->nb_streams ||
