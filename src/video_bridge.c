@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <psp2/io/fcntl.h>
 #include <psp2/kernel/processmgr.h>
 
 #include "app_paths.h"
@@ -332,9 +333,16 @@ int sss_video_browse_youtube(void)
 		UiYtSelection selection;
 		int action = ui_yt_screen(&selection);
 		if (action != UI_YT_ACTION_PLAY) return 0;
-		if (run_http_url_video(&selection) < 0)
+		if (selection.local_path[0]) {
+			if (sss_video_play_local(selection.local_path, selection.title) < 0)
+				ui_message_show(vt_i18n_str(VT_STR_MAIN_STREAMING_FAILED),
+				                "Could not play the prepared video", 3200);
+			if (selection.delete_local_after_play)
+				sceIoRemove(selection.local_path);
+		} else if (run_http_url_video(&selection) < 0) {
 			ui_message_show(vt_i18n_str(VT_STR_MAIN_STREAMING_FAILED),
 			                "Could not play the resolved stream", 3200);
+		}
 		memset(&selection, 0, sizeof(selection));
 	}
 }

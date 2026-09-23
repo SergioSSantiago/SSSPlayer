@@ -32,7 +32,8 @@ typedef struct {
 	char title[YT_TITLE_MAX];
 	char author[YT_AUTHOR_MAX];
 	int length_seconds;
-	int download_height; /* 0 if unknown / progressive-only */
+	int download_height; /* best adaptive H.264 ≤720p; 0 if unavailable */
+	int progressive_height; /* muxed play/download stream height; 0 if unknown */
 	/* When set, audio_url is empty but video_url is a muxed progressive MP4
 	 * (itag 18) whose AAC track can be remuxed to .m4a after download. */
 	int audio_via_progressive;

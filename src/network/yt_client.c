@@ -481,6 +481,7 @@ static int parse_innertube_player(const char *json, YtResolvedMedia *out)
 				best_score = score;
 				copy_field(out->video_url, sizeof(out->video_url), url);
 				snprintf(out->video_ext, sizeof(out->video_ext), "mp4");
+				out->progressive_height = h > 0 ? h : (itag == 18 ? 360 : 0);
 			}
 		}
 	}
@@ -554,6 +555,9 @@ static void merge_resolved(YtResolvedMedia *dst, const YtResolvedMedia *src)
 	if (!dst->video_url[0] && src->video_url[0]) {
 		copy_field(dst->video_url, sizeof(dst->video_url), src->video_url);
 		copy_field(dst->video_ext, sizeof(dst->video_ext), src->video_ext);
+		dst->progressive_height = src->progressive_height;
+	} else if (dst->progressive_height <= 0 && src->progressive_height > 0) {
+		dst->progressive_height = src->progressive_height;
 	}
 	if (!dst->download_video_url[0] && src->download_video_url[0]) {
 		copy_field(dst->download_video_url, sizeof(dst->download_video_url),

@@ -9,6 +9,7 @@
 #include <psp2/kernel/processmgr.h>
 #include <vita2d.h>
 
+#include "app_paths.h"
 #include "i18n/i18n.h"
 #include "network/download_manager.h"
 #include "network/yt_client.h"
@@ -22,6 +23,8 @@
 #include "ui/text_input.h"
 #include "ui/theme.h"
 #include "ui/touch.h"
+
+#define YT_PLAY_CACHE_DIR VITAMEDIADECK_DATA_DIR "/yt_cache"
 
 #define YT_LIST_X 52
 #define YT_LIST_Y 128
@@ -250,6 +253,195 @@ static int draw_action_menu(const YtSearchResult *item, int *choice)
 	}
 }
 
+/* quality: 0 = max adaptive HQ, 1 = standard progressive, -1 cancel.
+ * Returns 1 when the user confirms a choice (including cancel). */
+static int draw_quality_menu(const YtSearchResult *item,
+                             const YtResolvedMedia *media, int *quality,
+                             const char *prompt)
+{
+	SceCtrlData previous;
+	int selected = 0;
+	int has_hq;
+	int has_std;
+	char max_label[64];
+	char std_label[64];
+	const char *labels[3];
+	int values[3];
+	int n = 0;
+	int i;
+
+	if (!media || !quality) return 0;
+	has_hq = media->download_video_url[0] && media->audio_url[0];
+	has_std = media->video_url[0] != '\0';
+	if (!has_hq && !has_std) {
+		*quality = -1;
+		return 1;
+	}
+
+	if (has_hq) {
+		if (media->download_height > 0)
+			snprintf(max_label, sizeof(max_label), "Max quality (%dp)",
+			         media->download_height);
+		else
+			snprintf(max_label, sizeof(max_label), "Max quality (≤720p)");
+		labels[n] = max_label;
+		values[n++] = 0;
+	}
+	if (has_std) {
+		int h = media->progressive_height > 0 ? media->progressive_height : 360;
+		snprintf(std_label, sizeof(std_label), "Standard (%dp)", h);
+		labels[n] = std_label;
+		values[n++] = 1;
+	}
+	labels[n] = "Cancel";
+	values[n++] = -1;
+
+	memset(&previous, 0, sizeof(previous));
+	sceCtrlPeekBufferPositive(0, &previous, 1);
+	for (;;) {
+		vita2d_font *body = ui_runtime_font(UI_FONT_BODY);
+		vita2d_font *small = ui_runtime_font(UI_FONT_SMALL);
+		vita2d_start_drawing();
+		vita2d_clear_screen();
+		ui_chrome_background(VT_THEME_BG, VT_THEME_BLUE_LIGHT);
+		ui_brand_draw_header("YouTube");
+		ui_panel(80, 90, 800, 70, VT_THEME_SURFACE_RAISED, VT_THEME_BLUE_LIGHT, 0);
+		if (body)
+			ui_font_draw_text(body, 100, 130, VT_THEME_TEXT, UI_FONT_BODY,
+			                  item->title);
+		if (small)
+			ui_font_draw_text(small, 100, 150, VT_THEME_TEXT_DIM, UI_FONT_SMALL,
+			                  prompt && prompt[0] ? prompt
+			                                      : "Choose quality");
+		for (i = 0; i < n; i++) {
+			int y = 190 + i * 56;
+			ui_panel(80, y, 800, 50,
+			         i == selected ? VT_THEME_SURFACE_FOCUS : VT_THEME_SURFACE,
+			         VT_THEME_BLUE_LIGHT, 0);
+			if (i == selected)
+				vita2d_draw_rectangle(80, y, 4, 50, VT_THEME_SIGNAL_BRIGHT);
+			if (body)
+				ui_font_draw_text(body, 110, y + 32, VT_THEME_TEXT, UI_FONT_BODY,
+				                  labels[i]);
+		}
+		vita2d_end_drawing();
+		vita2d_wait_rendering_done();
+		vita2d_swap_buffers();
+
+		{
+			SceCtrlData controls;
+			unsigned pressed;
+			sceCtrlPeekBufferPositive(0, &controls, 1);
+			pressed = controls.buttons & ~previous.buttons;
+			previous = controls;
+			if ((pressed & SCE_CTRL_UP) && selected > 0) selected--;
+			if ((pressed & SCE_CTRL_DOWN) && selected + 1 < n) selected++;
+			if (pressed & SCE_CTRL_CROSS) {
+				*quality = values[selected];
+				return 1;
+			}
+			if (pressed & SCE_CTRL_CIRCLE) {
+				*quality = -1;
+				return 1;
+			}
+		}
+		sceKernelDelayThread(16 * 1000);
+	}
+}
+
+/* Download adaptive H.264 + AAC into folder and mux to out_mp4.
+ * Returns 0 on success. Does not show a destination picker. */
+static int yt_prepare_hq_mp4(const YtResolvedMedia *media, const char *base,
+                             const char *folder, char *out_mp4, size_t out_size)
+{
+	char v_name[128], a_name[128];
+	char remux_detail[160];
+	VtDownloadJob vjob, ajob;
+	YtRemuxAvJob remux;
+	char final_path[512];
+	char *dot;
+
+	if (!media || !base || !folder || !out_mp4 || out_size == 0)
+		return -1;
+	if (!media->download_video_url[0] || !media->audio_url[0])
+		return -1;
+
+	sceIoMkdir(VITAMEDIADECK_DATA_DIR, 0777);
+	sceIoMkdir(folder, 0777);
+
+	snprintf(v_name, sizeof(v_name), "%s.v.mp4", base);
+	snprintf(a_name, sizeof(a_name), "%s.a.m4a", base);
+
+	vt_download_job_init_url(&vjob, media->download_video_url);
+	vt_download_job_set_destination(&vjob, folder);
+	vt_download_job_set_filename(&vjob, v_name);
+	vt_download_job_set_user_agent(&vjob, YT_VR_UA);
+	if (ui_loading_run_download(
+	        media->download_height > 0 ? "Preparing video (HQ)…"
+	                                   : "Preparing video…",
+	        vt_download_run, &vjob, &vjob.paused, &vjob.cancel,
+	        &vjob.progress_current, &vjob.progress_total) != 0) {
+		if (!vjob.cancel)
+			ui_message_show(vt_i18n_str(VT_STR_NETWORK_DOWNLOAD_FAILED),
+			                vjob.detail[0] ? vjob.detail : "Transfer failed",
+			                3000);
+		return -1;
+	}
+
+	vt_download_job_init_url(&ajob, media->audio_url);
+	vt_download_job_set_destination(&ajob, folder);
+	vt_download_job_set_filename(&ajob, a_name);
+	vt_download_job_set_user_agent(&ajob, YT_VR_UA);
+	if (ui_loading_run_download(
+	        "Preparing audio…", vt_download_run, &ajob, &ajob.paused,
+	        &ajob.cancel, &ajob.progress_current, &ajob.progress_total) != 0) {
+		sceIoRemove(vjob.destination);
+		if (!ajob.cancel)
+			ui_message_show(vt_i18n_str(VT_STR_NETWORK_DOWNLOAD_FAILED),
+			                ajob.detail[0] ? ajob.detail : "Transfer failed",
+			                3000);
+		return -1;
+	}
+
+	snprintf(final_path, sizeof(final_path), "%s", vjob.destination);
+	dot = strstr(final_path, ".v.mp4");
+	if (!dot) {
+		sceIoRemove(vjob.destination);
+		sceIoRemove(ajob.destination);
+		ui_message_show("Mux failed", "Bad temp path", 2800);
+		return -1;
+	}
+	snprintf(dot, (size_t)(sizeof(final_path) - (size_t)(dot - final_path)),
+	         ".mp4");
+
+	remux_detail[0] = '\0';
+	remux.video = vjob.destination;
+	remux.audio = ajob.destination;
+	remux.dst = final_path;
+	remux.detail = remux_detail;
+	remux.detail_size = sizeof(remux_detail);
+	if (ui_loading_run("Muxing HQ MP4…", yt_remux_av_worker, &remux, NULL, NULL,
+	                   NULL) != 0) {
+		sceIoRemove(vjob.destination);
+		sceIoRemove(ajob.destination);
+		sceIoRemove(final_path);
+		ui_message_show("Mux failed",
+		                remux_detail[0] ? remux_detail : "Could not create MP4",
+		                3200);
+		return -1;
+	}
+	sceIoRemove(vjob.destination);
+	sceIoRemove(ajob.destination);
+	if (!yt_client_file_has_h264(final_path)) {
+		sceIoRemove(final_path);
+		ui_message_show("Unsupported video",
+		                "Muxed file has no playable H.264 track.", 3600);
+		return -1;
+	}
+	snprintf(out_mp4, out_size, "%s", final_path);
+	return 0;
+}
+
 static int run_yt_download(const char *url, const char *filename,
                             UiDestKind kind, int require_h264)
 {
@@ -325,125 +517,80 @@ static int resolve_and_act(const YtSearchResult *item, UiYtSelection *selection,
 	                        sizeof(base));
 
 	if (choice == 0) {
-		if (!media.video_url[0]) {
+		int quality = -1;
+		int has_hq = media.download_video_url[0] && media.audio_url[0];
+		int has_std = media.video_url[0] != '\0';
+
+		if (!has_hq && !has_std) {
 			ui_message_show(
 			    "Playback failed",
-			    "No H.264 progressive stream for this video", 3200);
+			    "No H.264 stream for this video", 3200);
 			return 0;
 		}
+		if (!draw_quality_menu(item, &media, &quality,
+		                       "Choose playback quality") ||
+		    quality < 0)
+			return 0;
 		if (!selection) return 0;
 		memset(selection, 0, sizeof(*selection));
-		snprintf(selection->video_url, sizeof(selection->video_url), "%s",
-		         media.video_url);
 		snprintf(selection->title, sizeof(selection->title), "%s",
 		         media.title[0] ? media.title : item->title);
 		snprintf(selection->author, sizeof(selection->author), "%s",
 		         media.author[0] ? media.author : item->author);
 		snprintf(selection->video_id, sizeof(selection->video_id), "%s",
 		         item->id);
+
+		/* Max: prepare HQ to a temp cache (not the library), then play local. */
+		if (quality == 0 && has_hq) {
+			char prepared[512];
+			if (yt_prepare_hq_mp4(&media, base, YT_PLAY_CACHE_DIR, prepared,
+			                      sizeof(prepared)) != 0)
+				return 0;
+			snprintf(selection->local_path, sizeof(selection->local_path), "%s",
+			         prepared);
+			selection->delete_local_after_play = 1;
+			*played = 1;
+			return 1;
+		}
+
+		if (!media.video_url[0]) {
+			ui_message_show(
+			    "Playback failed",
+			    "No standard H.264 stream for this video", 3200);
+			return 0;
+		}
+		snprintf(selection->video_url, sizeof(selection->video_url), "%s",
+		         media.video_url);
 		*played = 1;
 		return 1;
 	}
 
 	if (choice == 1) {
-		const char *vurl = media.download_video_url[0]
-		                 ? media.download_video_url
-		                 : media.video_url;
-		if (!vurl || !vurl[0]) {
+		int quality = -1;
+		int has_hq = media.download_video_url[0] && media.audio_url[0];
+		int has_std = media.video_url[0] != '\0';
+
+		if (!has_hq && !has_std) {
 			ui_message_show(
 			    "Download failed",
 			    "No H.264 stream for this video", 3200);
 			return 0;
 		}
+		if (!draw_quality_menu(item, &media, &quality,
+		                       "Choose download quality") ||
+		    quality < 0)
+			return 0;
 
-		/* Prefer adaptive ≤720p H.264 + AAC remux for maximum Vita quality. */
-		if (media.download_video_url[0] && media.audio_url[0]) {
+		/* Max quality: adaptive ≤720p H.264 + AAC remux into chosen folder. */
+		if (quality == 0 && has_hq) {
 			char folder[512];
-			char v_name[128], a_name[128];
-			char remux_detail[160];
-			VtDownloadJob vjob, ajob;
-			YtRemuxAvJob remux;
 			char final_path[512];
-			char *dot;
-
-			snprintf(v_name, sizeof(v_name), "%s.v.mp4", base);
-			snprintf(a_name, sizeof(a_name), "%s.a.m4a", base);
 			if (!ui_destination_picker_kind(UI_DEST_KIND_VIDEO, NULL, folder,
 			                               sizeof(folder)))
 				return 0;
-
-			vt_download_job_init_url(&vjob, media.download_video_url);
-			vt_download_job_set_destination(&vjob, folder);
-			vt_download_job_set_filename(&vjob, v_name);
-			vt_download_job_set_user_agent(&vjob, YT_VR_UA);
-			if (ui_loading_run_download(
-			        media.download_height > 0
-			            ? "Downloading video (HQ)…"
-			            : "Downloading video…",
-			        vt_download_run, &vjob, &vjob.paused, &vjob.cancel,
-			        &vjob.progress_current, &vjob.progress_total) != 0) {
-				if (!vjob.cancel)
-					ui_message_show(
-					    vt_i18n_str(VT_STR_NETWORK_DOWNLOAD_FAILED),
-					    vjob.detail[0] ? vjob.detail : "Transfer failed",
-					    3000);
+			if (yt_prepare_hq_mp4(&media, base, folder, final_path,
+			                      sizeof(final_path)) != 0)
 				return 0;
-			}
-
-			vt_download_job_init_url(&ajob, media.audio_url);
-			vt_download_job_set_destination(&ajob, folder);
-			vt_download_job_set_filename(&ajob, a_name);
-			vt_download_job_set_user_agent(&ajob, YT_VR_UA);
-			if (ui_loading_run_download(
-			        "Downloading audio…", vt_download_run, &ajob,
-			        &ajob.paused, &ajob.cancel, &ajob.progress_current,
-			        &ajob.progress_total) != 0) {
-				sceIoRemove(vjob.destination);
-				if (!ajob.cancel)
-					ui_message_show(
-					    vt_i18n_str(VT_STR_NETWORK_DOWNLOAD_FAILED),
-					    ajob.detail[0] ? ajob.detail : "Transfer failed",
-					    3000);
-				return 0;
-			}
-
-			snprintf(final_path, sizeof(final_path), "%s", vjob.destination);
-			dot = strstr(final_path, ".v.mp4");
-			if (!dot) {
-				sceIoRemove(vjob.destination);
-				sceIoRemove(ajob.destination);
-				ui_message_show("Mux failed", "Bad temp path", 2800);
-				return 0;
-			}
-			snprintf(dot, (size_t)(sizeof(final_path) - (size_t)(dot - final_path)),
-			         ".mp4");
-
-			remux_detail[0] = '\0';
-			remux.video = vjob.destination;
-			remux.audio = ajob.destination;
-			remux.dst = final_path;
-			remux.detail = remux_detail;
-			remux.detail_size = sizeof(remux_detail);
-			if (ui_loading_run("Muxing HQ MP4…", yt_remux_av_worker, &remux,
-			                   NULL, NULL, NULL) != 0) {
-				sceIoRemove(vjob.destination);
-				sceIoRemove(ajob.destination);
-				sceIoRemove(final_path);
-				ui_message_show("Mux failed",
-				                remux_detail[0] ? remux_detail
-				                                : "Could not create MP4",
-				                3200);
-				return 0;
-			}
-			sceIoRemove(vjob.destination);
-			sceIoRemove(ajob.destination);
-			if (!yt_client_file_has_h264(final_path)) {
-				sceIoRemove(final_path);
-				ui_message_show(
-				    "Unsupported video",
-				    "Muxed file has no playable H.264 track.", 3600);
-				return 0;
-			}
 			{
 				char ok[96];
 				snprintf(ok, sizeof(ok),
@@ -456,9 +603,15 @@ static int resolve_and_act(const YtSearchResult *item, UiYtSelection *selection,
 			return 0;
 		}
 
-		/* Fallback: progressive muxed MP4 (usually 360p). */
+		/* Standard: progressive muxed MP4 (usually 360p). */
+		if (!media.video_url[0]) {
+			ui_message_show(
+			    "Download failed",
+			    "No standard H.264 stream for this video", 3200);
+			return 0;
+		}
 		snprintf(filename, sizeof(filename), "%s.mp4", base);
-		run_yt_download(vurl, filename, UI_DEST_KIND_VIDEO, 1);
+		run_yt_download(media.video_url, filename, UI_DEST_KIND_VIDEO, 1);
 		return 0;
 	}
 
