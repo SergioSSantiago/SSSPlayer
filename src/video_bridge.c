@@ -8,7 +8,6 @@
 #include <string.h>
 
 #include <psp2/io/fcntl.h>
-#include <psp2/io/stat.h>
 #include <psp2/kernel/processmgr.h>
 
 #include "app_paths.h"
@@ -37,13 +36,7 @@
 
 #include <vita_https.h>
 
-#include "network/download_manager.h"
 #include "network/http_url_stream.h"
-#include "network/yt_client.h"
-
-#define YT_PLAY_CACHE_DIR VITAMEDIADECK_DATA_DIR "/yt_cache"
-#define YT_ANDROID_UA \
-	"com.google.android.youtube/20.10.38 (Linux; U; Android 11) gzip"
 
 static int g_video_ready;
 static int g_network_ready;
@@ -284,110 +277,19 @@ int sss_video_browse_network(void)
 	}
 }
 
-static int yt_fallback_remux_play(const UiYtSelection *selection)
-{
-	VtDownloadJob vjob, ajob;
-	char folder[256];
-	char base[96];
-	char v_name[128], a_name[128];
-	char final_path[512];
-	char remux_detail[160];
-	char *dot;
-	int ret;
-
-	if (!selection || !selection->video_url[0] || !selection->audio_url[0])
-		return -1;
-
-	sceIoMkdir(VITAMEDIADECK_DATA_DIR, 0777);
-	sceIoMkdir(YT_PLAY_CACHE_DIR, 0777);
-	snprintf(folder, sizeof(folder), "%s", YT_PLAY_CACHE_DIR);
-	yt_client_safe_filename(selection->title[0] ? selection->title : "youtube",
-	                        base, sizeof(base));
-	snprintf(v_name, sizeof(v_name), "%s.v.mp4", base);
-	snprintf(a_name, sizeof(a_name), "%s.a.m4a", base);
-
-	vt_download_job_init_url(&vjob, selection->video_url);
-	vt_download_job_set_destination(&vjob, folder);
-	vt_download_job_set_filename(&vjob, v_name);
-	vt_download_job_set_user_agent(&vjob, YT_ANDROID_UA);
-	if (ui_loading_run_download("Preparing Max video…", vt_download_run, &vjob,
-	                           &vjob.paused, &vjob.cancel, &vjob.progress_current,
-	                           &vjob.progress_total) != 0) {
-		if (!vjob.cancel)
-			ui_message_show(vt_i18n_str(VT_STR_NETWORK_DOWNLOAD_FAILED),
-			                vjob.detail[0] ? vjob.detail : "Transfer failed",
-			                3000);
-		return -1;
-	}
-
-	vt_download_job_init_url(&ajob, selection->audio_url);
-	vt_download_job_set_destination(&ajob, folder);
-	vt_download_job_set_filename(&ajob, a_name);
-	vt_download_job_set_user_agent(&ajob, YT_ANDROID_UA);
-	if (ui_loading_run_download("Preparing Max audio…", vt_download_run, &ajob,
-	                           &ajob.paused, &ajob.cancel, &ajob.progress_current,
-	                           &ajob.progress_total) != 0) {
-		sceIoRemove(vjob.destination);
-		if (!ajob.cancel)
-			ui_message_show(vt_i18n_str(VT_STR_NETWORK_DOWNLOAD_FAILED),
-			                ajob.detail[0] ? ajob.detail : "Transfer failed",
-			                3000);
-		return -1;
-	}
-
-	snprintf(final_path, sizeof(final_path), "%s", vjob.destination);
-	dot = strstr(final_path, ".v.mp4");
-	if (!dot) {
-		sceIoRemove(vjob.destination);
-		sceIoRemove(ajob.destination);
-		return -1;
-	}
-	snprintf(dot, (size_t)(sizeof(final_path) - (size_t)(dot - final_path)),
-	         ".mp4");
-	remux_detail[0] = '\0';
-	if (yt_client_remux_av_mp4(vjob.destination, ajob.destination, final_path,
-	                           remux_detail, sizeof(remux_detail)) != 0) {
-		sceIoRemove(vjob.destination);
-		sceIoRemove(ajob.destination);
-		sceIoRemove(final_path);
-		ui_message_show("Mux failed",
-		                remux_detail[0] ? remux_detail : "Could not create MP4",
-		                3200);
-		return -1;
-	}
-	sceIoRemove(vjob.destination);
-	sceIoRemove(ajob.destination);
-	if (!yt_client_file_has_h264(final_path)) {
-		sceIoRemove(final_path);
-		return -1;
-	}
-	ret = sss_video_play_local(final_path, selection->title);
-	sceIoRemove(final_path);
-	return ret;
-}
-
 static int run_http_url_video(const UiYtSelection *selection)
 {
 	HttpUrlStreamFactory remote;
-	HttpUrlStreamFactory audio_remote;
 	VtHwPlayerScreenSource source;
 	char id[16];
 	uint64_t last_position;
 	uint64_t last_duration = 0;
 	int last_audio = 0, last_subtitle = 0;
 	int ret;
-	int dual = 0;
 
 	if (!selection || !selection->video_url[0]) return -1;
-	memset(&audio_remote, 0, sizeof(audio_remote));
 	if (http_url_stream_factory_init(&remote, selection->video_url) < 0)
 		return -1;
-	dual = selection->audio_url[0] != '\0';
-	if (dual &&
-	    http_url_stream_factory_init(&audio_remote, selection->audio_url) < 0) {
-		http_url_stream_factory_free(&remote);
-		return -1;
-	}
 
 	yield_music_audio();
 	vt_video_thumbnail_prepare_playback();
@@ -401,28 +303,23 @@ static int run_http_url_video(const UiYtSelection *selection)
 
 	memset(&source, 0, sizeof(source));
 	source.stream = remote.factory;
-	if (dual) source.audio_stream = audio_remote.factory;
 	source.title = selection->title;
 	source.location = selection->author[0] ? selection->author : "YouTube";
 	source.history_id = id;
 	source.authenticated_remote = 0;
 	source.allow_minimize = 0;
 	source.expected_height =
-	    selection->quality_height > 0 ? (uint32_t)selection->quality_height : 0;
+	    selection->quality_height > 0 ? (uint32_t)selection->quality_height
+	                                  : 360;
 	last_position = vt_playback_history_position(id, 0);
 	source.start_position_ms = last_position;
 	ret = vt_hw_player_screen_run(&source, &last_position, &last_duration,
 	                              &last_audio, &last_subtitle);
 	http_url_stream_factory_free(&remote);
-	if (dual) http_url_stream_factory_free(&audio_remote);
 	log_save(VITAMEDIADECK_SESSION_LOG_PATH);
 	vt_playback_history_update(id, last_position, last_duration);
 	restore_music_audio();
 	ui_touch_reset();
-
-	/* Dual adaptive open can fail on some encodes; remux-to-temp still works. */
-	if (ret < 0 && dual)
-		ret = yt_fallback_remux_play(selection);
 	return ret;
 }
 
@@ -439,16 +336,9 @@ int sss_video_browse_youtube(void)
 		UiYtSelection selection;
 		int action = ui_yt_screen(&selection);
 		if (action != UI_YT_ACTION_PLAY) return 0;
-		if (selection.local_path[0]) {
-			if (sss_video_play_local(selection.local_path, selection.title) < 0)
-				ui_message_show(vt_i18n_str(VT_STR_MAIN_STREAMING_FAILED),
-				                "Could not play the prepared video", 3200);
-			if (selection.delete_local_after_play)
-				sceIoRemove(selection.local_path);
-		} else if (run_http_url_video(&selection) < 0) {
+		if (run_http_url_video(&selection) < 0)
 			ui_message_show(vt_i18n_str(VT_STR_MAIN_STREAMING_FAILED),
 			                "Could not play the resolved stream", 3200);
-		}
 		memset(&selection, 0, sizeof(selection));
 	}
 }

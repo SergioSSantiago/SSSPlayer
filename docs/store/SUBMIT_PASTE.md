@@ -29,7 +29,7 @@ SSSP00001
 
 **Version**
 ```
-1.1.32
+1.1.33
 ```
 
 **Type / Category** (pick closest to Utility / Media / Application)
@@ -41,7 +41,7 @@ https://github.com/SergioSSantiago/SSSPlayer
 
 **Download URL**
 ```
-https://github.com/SergioSSantiago/SSSPlayer/releases/download/v1.1.32/SSSPlayer-1.1.32.vpk
+https://github.com/SergioSSantiago/SSSPlayer/releases/download/v1.1.33/SSSPlayer-1.1.33.vpk
 ```
 
 **Icon file**
@@ -73,7 +73,7 @@ Video:
 
 YouTube:
 - Search and stream playback on-device
-- Download video (H.264 up to 720p remuxed to MP4) or audio (MP3 / M4A)
+- Download video (H.264 ~360p progressive MP4) or audio (M4A)
 - Destination folder picker; in-app delete (Square); download progress
 
 Extras:
@@ -91,7 +91,7 @@ Credits: built by SergioSSantiago. Thanks to VitaWave and VitaMediaDeck — SSSP
 TITLEID: SSSP00001
 Data: ux0:data/SSSPlayer/
 License: GPL-3.0-only
-Version: 1.1.32
+Version: 1.1.33
 ```
 
 **Screenshots** (upload on-device captures if the form asks)
