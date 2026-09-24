@@ -345,40 +345,9 @@ static int resolve_and_act(const YtSearchResult *item, UiYtSelection *selection,
 	}
 
 	if (choice == 2) {
-		if (media.audio_url[0]) {
-			snprintf(filename, sizeof(filename), "%s.%s", base,
-			         media.audio_ext[0] ? media.audio_ext : "m4a");
-			{
-				VtDownloadJob job;
-				char destination[512];
-				if (!ui_destination_picker_kind(UI_DEST_KIND_AUDIO, NULL,
-				                               destination, sizeof(destination)))
-					return 0;
-				vt_download_job_init_url(&job, media.audio_url);
-				vt_download_job_set_destination(&job, destination);
-				vt_download_job_set_filename(&job, filename);
-				vt_download_job_set_user_agent(&job, YT_ANDROID_UA);
-				if (ui_loading_run_download(
-				        vt_i18n_str(VT_STR_NETWORK_DOWNLOADING),
-				        vt_download_run, &job, &job.paused, &job.cancel,
-				        &job.progress_current, &job.progress_total) == 0)
-					ui_message_show(
-					    vt_i18n_str(VT_STR_NETWORK_DOWNLOAD_COMPLETE),
-					    job.destination, 2800);
-				else if (job.cancel)
-					ui_message_show(
-					    vt_i18n_str(VT_STR_NETWORK_DOWNLOAD_ABORTED),
-					    job.destination, 2400);
-				else
-					ui_message_show(
-					    vt_i18n_str(VT_STR_NETWORK_DOWNLOAD_FAILED),
-					    job.detail[0] ? job.detail : "Transfer failed",
-					    3000);
-			}
-			return 0;
-		}
-
-		if (media.audio_via_progressive && media.video_url[0]) {
+		/* Prefer remux from progressive itag 18: adaptive AAC CDN links often
+		 * 403 without Range/clen, and that path broke once Max filled audio_url. */
+		if (media.video_url[0]) {
 			char temp_name[128];
 			char folder[512];
 			char final_path[512];
@@ -394,6 +363,7 @@ static int resolve_and_act(const YtSearchResult *item, UiYtSelection *selection,
 			vt_download_job_init_url(&dl, media.video_url);
 			vt_download_job_set_destination(&dl, folder);
 			vt_download_job_set_filename(&dl, temp_name);
+			vt_download_job_set_user_agent(&dl, YT_ANDROID_UA);
 			if (ui_loading_run_download(
 			        "Downloading audio…", vt_download_run, &dl, &dl.paused,
 			        &dl.cancel, &dl.progress_current, &dl.progress_total) != 0) {
@@ -431,6 +401,39 @@ static int resolve_and_act(const YtSearchResult *item, UiYtSelection *selection,
 			}
 			sceIoRemove(dl.destination);
 			ui_message_show("Audio saved", final_path, 3200);
+			return 0;
+		}
+
+		if (media.audio_url[0]) {
+			snprintf(filename, sizeof(filename), "%s.%s", base,
+			         media.audio_ext[0] ? media.audio_ext : "m4a");
+			{
+				VtDownloadJob job;
+				char destination[512];
+				if (!ui_destination_picker_kind(UI_DEST_KIND_AUDIO, NULL,
+				                               destination, sizeof(destination)))
+					return 0;
+				vt_download_job_init_url(&job, media.audio_url);
+				vt_download_job_set_destination(&job, destination);
+				vt_download_job_set_filename(&job, filename);
+				vt_download_job_set_user_agent(&job, YT_ANDROID_UA);
+				if (ui_loading_run_download(
+				        vt_i18n_str(VT_STR_NETWORK_DOWNLOADING),
+				        vt_download_run, &job, &job.paused, &job.cancel,
+				        &job.progress_current, &job.progress_total) == 0)
+					ui_message_show(
+					    vt_i18n_str(VT_STR_NETWORK_DOWNLOAD_COMPLETE),
+					    job.destination, 2800);
+				else if (job.cancel)
+					ui_message_show(
+					    vt_i18n_str(VT_STR_NETWORK_DOWNLOAD_ABORTED),
+					    job.destination, 2400);
+				else
+					ui_message_show(
+					    vt_i18n_str(VT_STR_NETWORK_DOWNLOAD_FAILED),
+					    job.detail[0] ? job.detail : "Transfer failed",
+					    3000);
+			}
 			return 0;
 		}
 

@@ -29,7 +29,7 @@ SSSP00001
 
 **Version**
 ```
-1.1.33
+1.1.34
 ```
 
 **Type / Category** (pick closest to Utility / Media / Application)
@@ -41,7 +41,7 @@ https://github.com/SergioSSantiago/SSSPlayer
 
 **Download URL**
 ```
-https://github.com/SergioSSantiago/SSSPlayer/releases/download/v1.1.33/SSSPlayer-1.1.33.vpk
+https://github.com/SergioSSantiago/SSSPlayer/releases/download/v1.1.34/SSSPlayer-1.1.34.vpk
 ```
 
 **Icon file**
@@ -91,7 +91,7 @@ Credits: built by SergioSSantiago. Thanks to VitaWave and VitaMediaDeck — SSSP
 TITLEID: SSSP00001
 Data: ux0:data/SSSPlayer/
 License: GPL-3.0-only
-Version: 1.1.33
+Version: 1.1.34
 ```
 
 **Screenshots** (upload on-device captures if the form asks)
