@@ -32,7 +32,7 @@ I also wanted **both music and video** in one app: scrub the progress bar to the
 4. Copy the VPK to **`ux0:`**.
 5. In VitaShell, open the VPK on `ux0:` and install it.
 
-You can also install SSSPlayer from homebrew stores such as **[PS Vita Alive](https://vegettosan.github.io/PSVitaAlive/app.html?title_id=SSSP00001)** and **[VitaDB](https://www.rinnegatamante.eu/vitadb/)**.
+You can also install SSSPlayer from homebrew stores such as **[PS Vita Alive](https://vegettosan.github.io/PSVitaAlive/app.html?title_id=SSSP00001)** and **[VitaDB](https://www.rinnegatamante.eu/vitadb/#/info/1534)**.
 
 ## Recommendations / tips
 
