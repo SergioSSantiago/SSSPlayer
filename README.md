@@ -24,6 +24,16 @@ I also wanted **both music and video** in one app: scrub the progress bar to the
 
 **Title ID:** `SSSP00001`
 
+## Installation
+
+1. Download the VPK from the [latest release](https://github.com/SergioSSantiago/SSSPlayer/releases/latest).
+2. On the Vita, open **VitaShell** and enable **FTP** mode.
+3. On your computer, connect with **Cyberduck** (or any FTP client) to the Vita.
+4. Copy the VPK to **`ux0:`**.
+5. In VitaShell, open the VPK on `ux0:` and install it.
+
+You can also install SSSPlayer from homebrew stores such as **[PS Vita Alive](https://vegettosan.github.io/PSVitaAlive/app.html?title_id=SSSP00001)**.
+
 ## Recommendations / tips
 
 - **Exit the app from Settings** — Home is forced closed / disabled for a clean quit so you avoid suspend glitches. Use **Settings → Exit SSSPlayer**.
@@ -41,8 +51,6 @@ mkdir build && cd build
 cmake .. -DCMAKE_TOOLCHAIN_FILE=$VITASDK/share/vita.toolchain.cmake -DVITASDK=$VITASDK
 make -j4
 ```
-
-Install `build/SSSPlayer-*.vpk` with VitaShell.
 
 ## Credits
 
