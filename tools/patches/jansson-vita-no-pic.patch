@@ -1,0 +1,6 @@
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -324,2 +324,2 @@
+    set_target_properties(jansson PROPERTIES
+-      POSITION_INDEPENDENT_CODE true)
++      POSITION_INDEPENDENT_CODE false)
